@@ -1,11 +1,11 @@
-const APP_VERSION="2026.11.12";
+const APP_VERSION="2026.11.13";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ls={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 let U=null,DB=null,M=null,Q=[],E='',ans={},idx=0,done=false,filter='all',shown=40,saveT=null;
 const hash=s=>{let h=5381;for(const c of s)h=((h<<5)+h+c.charCodeAt(0))>>>0;return String(h)};
-const show=v=>['login','home','play','result','admin'].forEach(x=>$(x).classList.toggle('hide',x!==v));
+const show=v=>['login','home','play','result','admin','notes','live'].forEach(x=>$(x).classList.toggle('hide',x!==v));
 const pk=m=>'pq:p:'+U.id+':'+m;
 
 /* ---------- login ---------- */
@@ -189,7 +189,7 @@ async function enter(){
 
 /* ---------- home ---------- */
 async function home(){
-  show('home');await loadCustom();
+  show('home');await loadCustom();await loadContent();$('nNotes').textContent=CONTENT.notes.length+' note(s)';const up=CONTENT.classes.filter(c=>classEnd(c)>Date.now()).length;$('nLive').textContent=up?up+' upcoming / live class(es)':'No upcoming classes';
   if(!U.admin)ACC=await getAccess(U.id);
   const ok=VIS().filter(m=>ACC.includes(m.id));
   $('mods').innerHTML=(ok.length?'':'<div class="card">⏳ No tests are unlocked for you yet. Please ask the admin to give you access, then press the <b>Tests</b> button again.</div>')+
@@ -326,7 +326,7 @@ async function loadAdmin(){
   if(priv)for(const id in raw){try{pf[id]=await decProfile(priv,raw[id])}catch(e){}}
   if(!priv)$('pwMsg').classList.remove('hide'),$('pwMsg').innerHTML='🔒 To see student details, please log out and log in as admin again.';
   const c=(await emailCfg())||{};$('ejS').value=c.s||'';$('ejT').value=c.t||'';$('ejK').value=c.k||'';
-  qbList();
+  qbList();await loadContent();cRender();
   const st=ac.map(x=>({id:x.id,...x,...(pf[x.id]||{})}));
   const att=m=>st.filter(x=>(res[x.id]||{})[m.id]).length;
   const head='<tr><th>Student details</th>'+VIS().map(m=>'<th title="'+esc(m.name)+'">'+esc(m.short)+'<br><span class="sub">'+att(m)+' attended</span></th>').join('')+'<th></th></tr>';
@@ -410,6 +410,74 @@ function qbList(){
     const btn=m.custom?'<button class="btn ghost" data-cq="'+m.cid+'">Delete</button>':h?'<button class="btn ghost" data-show="'+m.id+'">Restore</button>':'<button class="btn ghost" data-hide="'+m.id+'">Remove</button>';
     return '<div class="row" style="justify-content:space-between;margin-top:8px;'+(h?'opacity:.5':'')+'"><span>'+esc(m.name)+(h?' <span class="tag">removed</span>':'')+'</span>'+btn+'</div>'}).join('')}
 
+/* ---------- notes & live classes ---------- */
+let CONTENT={notes:[],classes:[]};
+const safeUrl=u=>{u=String(u||'').trim();return /^https?:\/\/\S+$/i.test(u)||/^[\w\-./]+$/.test(u)?u:''};
+const fmtDT=t=>new Date(t).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
+const classStart=c=>new Date(c.start).getTime(),classEnd=c=>classStart(c)+(+c.dur||60)*60000;
+async function loadContent(){
+  let c=null;
+  if(DB){try{const d=await DB.doc('content/main').get();if(d.exists)c=JSON.parse(d.data().v)}catch(e){}}
+  else{
+    try{const r=await fetch('content.json?'+Date.now(),{cache:'no-store'});if(r.ok){c=await r.json();ls.set('pq:contentcache',c)}}catch(e){}
+    if(!c)c=ls.get('pq:contentcache',null);
+    if(U&&U.admin){const dr=ls.get('pq:contentdraft',null);if(dr)c=dr}
+  }
+  CONTENT={notes:(c&&c.notes)||[],classes:(c&&c.classes)||[]};
+}
+async function saveContent(){
+  if(DB){try{await DB.doc('content/main').set({v:JSON.stringify(CONTENT)});return true}catch(e){return false}}
+  ls.set('pq:contentdraft',CONTENT);return true;
+}
+let OPENNOTE=null,LVT=null;
+function renderNotes(){
+  $('nRead').classList.add('hide');$('nList').classList.remove('hide');$('nSearch').classList.remove('hide');
+  const q=$('nSearch').value.trim().toLowerCase();
+  const list=CONTENT.notes.filter(n=>!q||((n.title||'')+' '+(n.subject||'')+' '+(n.body||'')).toLowerCase().includes(q)).sort((a,b)=>(b.ts||0)-(a.ts||0));
+  $('nList').innerHTML=list.map(n=>'<button class="opt" data-n="'+esc(n.id)+'" style="padding:12px"><b>'+esc(n.title)+'</b> '+(n.subject?'<span class="tag">'+esc(n.subject)+'</span>':'')+'<div class="sub" style="margin:4px 0 0">'+esc((n.body||'').slice(0,110))+((n.body||'').length>110?'…':'')+'</div></button>').join('')||'<div class="card sub">No notes yet.</div>';
+}
+$('nList').onclick=e=>{const b=e.target.closest('button');if(!b)return;const n=CONTENT.notes.find(x=>x.id===b.dataset.n);if(!n)return;
+  const u=safeUrl(n.link);
+  $('nList').classList.add('hide');$('nSearch').classList.add('hide');$('nRead').classList.remove('hide');
+  $('nRead').innerHTML='<button class="btn ghost" id="nBackList">← All notes</button><h2 style="margin:12px 0 4px">'+esc(n.title)+'</h2>'+(n.subject?'<span class="tag">'+esc(n.subject)+'</span> ':'')+'<span class="sub">'+(n.ts?fmtDT(n.ts):'')+'</span><div style="white-space:pre-wrap;margin-top:12px;line-height:1.6">'+esc(n.body||'')+'</div>'+(u?'<p><a class="btn" href="'+esc(u)+'" target="_blank" rel="noopener">Open attached PDF / link</a></p>':'');
+  $('nBackList').onclick=renderNotes;scrollTo(0,0)};
+$('nSearch').oninput=renderNotes;
+$('goNotes').onclick=async()=>{show('notes');await loadContent();$('nSearch').value='';renderNotes()};
+$('nBack').onclick=()=>home();
+function renderLive(){
+  const now=Date.now(),cl=CONTENT.classes.slice();
+  const live=cl.filter(c=>classStart(c)<=now&&classEnd(c)>now),up=cl.filter(c=>classStart(c)>now).sort((a,b)=>classStart(a)-classStart(b)),past=cl.filter(c=>classEnd(c)<=now).sort((a,b)=>classStart(b)-classStart(a)).slice(0,10);
+  const card=(c,st)=>{const u=safeUrl(c.link),r=safeUrl(c.rec);let badge='',btn='';
+    if(st==='live'){badge='<span class="tag bad">🔴 LIVE NOW</span>';btn=u?'<a class="btn" href="'+esc(u)+'" target="_blank" rel="noopener">Join class</a>':''}
+    else if(st==='up'){const m=Math.max(0,Math.round((classStart(c)-now)/60000)),t=m>=1440?Math.floor(m/1440)+' day(s)':m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+' min';badge='<span class="tag">⏰ Starts in '+t+'</span>';btn=u?'<a class="btn ghost" href="'+esc(u)+'" target="_blank" rel="noopener">Join link</a>':''}
+    else{badge='<span class="tag">Ended</span>';btn=r?'<a class="btn ghost" href="'+esc(r)+'" target="_blank" rel="noopener">Watch recording</a>':''}
+    return '<div class="card"><b>'+esc(c.title)+'</b> '+(c.subject?'<span class="tag">'+esc(c.subject)+'</span>':'')+'<div class="sub" style="margin:6px 0">📅 '+fmtDT(c.start)+' · '+(c.dur||60)+' min</div>'+(c.desc?'<div style="margin-bottom:8px">'+esc(c.desc)+'</div>':'')+badge+(btn?'<div style="margin-top:10px">'+btn+'</div>':'')+'</div>'};
+  $('lvList').innerHTML=live.map(c=>card(c,'live')).join('')+(up.length?'<h3 style="margin:14px 0 6px;font-size:15px">Upcoming</h3>'+up.map(c=>card(c,'up')).join(''):'')+(past.length?'<h3 style="margin:14px 0 6px;font-size:15px">Past classes</h3>'+past.map(c=>card(c,'past')).join(''):'')||'<div class="card sub">No classes scheduled yet.</div>';
+}
+$('goLive').onclick=async()=>{show('live');await loadContent();renderLive();clearInterval(LVT);LVT=setInterval(()=>{if(!$('live').classList.contains('hide'))renderLive();else clearInterval(LVT)},30000)};
+$('lvBack').onclick=()=>{clearInterval(LVT);home()};
+/* admin editor for notes & classes */
+const rid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+function cRender(){
+  $('cDl').classList.toggle('hide',!!DB);
+  $('cHelp').textContent=DB?'Saved instantly for all students.':'Press “Download content.json”, then upload that file to your GitHub repo (replace the old one). Students see the change within a minute.';
+  $('cList').innerHTML=CONTENT.notes.map(n=>'<div class="row" style="justify-content:space-between;margin-top:8px"><span>📝 '+esc(n.title)+'</span><button class="btn ghost" data-dn="'+esc(n.id)+'">Delete</button></div>').join('')+CONTENT.classes.map(c=>'<div class="row" style="justify-content:space-between;margin-top:8px"><span>🎥 '+esc(c.title)+' <span class="sub">'+fmtDT(c.start)+'</span></span><button class="btn ghost" data-dc="'+esc(c.id)+'">Delete</button></div>').join('');
+}
+$('cAddNote').onclick=async()=>{const g=i=>$(i).value.trim(),m=$('cMsg');m.style.color='var(--bad)';
+  if(!g('cTitle')||!g('cBody')){m.textContent='Enter a title and the note text.';return}
+  await loadContent();CONTENT.notes.push({id:rid(),title:g('cTitle'),subject:g('cSubject'),body:$('cBody').value,link:g('cLink'),ts:Date.now()});
+  const ok=await saveContent();['cTitle','cSubject','cBody','cLink'].forEach(i=>$(i).value='');m.style.color=ok?'var(--ok)':'var(--bad)';m.textContent=ok?'Note added.':'Could not save.';cRender()};
+$('lAdd').onclick=async()=>{const g=i=>$(i).value.trim(),m=$('cMsg');m.style.color='var(--bad)';
+  if(!g('lTitle')||!g('lWhen')){m.textContent='Enter a class title and date/time.';return}
+  if(g('lLink')&&!safeUrl(g('lLink'))){m.textContent='The join link must start with https://';return}
+  await loadContent();CONTENT.classes.push({id:rid(),title:g('lTitle'),subject:g('lSubject'),start:new Date($('lWhen').value).toISOString(),dur:+g('lDur')||60,link:g('lLink'),rec:g('lRec'),desc:g('lDesc')});
+  const ok=await saveContent();['lTitle','lSubject','lWhen','lLink','lRec','lDesc'].forEach(i=>$(i).value='');m.style.color=ok?'var(--ok)':'var(--bad)';m.textContent=ok?'Class scheduled.':'Could not save.';cRender()};
+$('cList').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
+  if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}
+  if(b.dataset.dn)CONTENT.notes=CONTENT.notes.filter(x=>x.id!==b.dataset.dn);
+  if(b.dataset.dc)CONTENT.classes=CONTENT.classes.filter(x=>x.id!==b.dataset.dc);
+  await saveContent();cRender()};
+$('cDl').onclick=()=>{const b=new Blob([JSON.stringify(CONTENT,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='content.json';a.click()};
 $('admBack').onclick=()=>home();
 init();
 
