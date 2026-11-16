@@ -1,23 +1,15 @@
-Revision Quiz app  (version 2026.11.12)
+Revision Quiz app  (version 2026.11.14)
 
-FIRST TIME (one-time)
-1. Upload ALL files in this folder to your web host (replace the old files).
-2. Open the app, close it, and open it again once.
+UPLOAD TO GITHUB (this update changes the file layout)
+1. Unzip this folder. On GitHub: your repo > Add file > Upload files.
+2. Drag EVERYTHING from the unzipped folder in, including the two folders "data" and "sheets". Commit changes.
+3. Optional: delete the old data.js (24 MB) from the repo - it is no longer used.
+4. Wait about a minute. Students then see "Update now" in the app (or press "Check for updates").
 
-HOW TO PUSH A FEATURE UPDATE (students do NOT reinstall)
-1. Upload only the new app.js (and index.html if it is included) to the same place on your host.
-2. Edit version.json: change "v" to a new number (e.g. 2026.12.01) and write a short "notes" message.
-   data.js (the big quiz images file) does NOT need to be uploaded again unless the quizzes change.
-3. Students see a banner "New version available" and tap "Update now" (or the "Check for updates" button).
-   Their logins, answers and scores are kept. Only the small files are downloaded.
+WHAT'S NEW
+- Test timer: 90 minutes per 100 questions (e.g. 150 questions = 135 min). It keeps running if the app is closed, and the test submits itself when time is up.
+- Faster for many users: the app now loads only ~60 KB at start; each test downloads only when opened, then is saved on the phone.
+- Safety limits: 5 wrong passwords = temporary lock; OTP emails limited to 1 per minute and 5 per day per device.
 
-SIGN-UP
-Students create their own account on the login screen (first name, last name, mobile, email, password).
-Their details are encrypted and only the admin can read them. The admin must log in once first to open sign-up.
-
-FORGOT-PASSWORD EMAIL OTP
-EmailJS is already built in (Service service_ixah061, Template template_qu8z0gi). The OTP is emailed automatically.
-Requirements: the Gmail service must be connected in your EmailJS dashboard, and the template must use {{email}}, {{passcode}} and {{time}}.
-Works on your GitHub Pages / hosted link, not inside the claude.ai link. OTP valid for 15 minutes.
-
-Note: this installed copy stores users/scores on each device. For one shared class list across all devices, use the web link.
+FUTURE UPDATES
+Upload only the changed files (usually app.js and version.json). Change "v" in version.json so phones notice.
