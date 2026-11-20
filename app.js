@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.14";
+const APP_VERSION="2026.11.15";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -9,7 +9,24 @@ const show=v=>['login','home','play','result','admin','notes','live'].forEach(x=
 const pk=m=>'pq:p:'+U.id+':'+m;
 
 /* ---------- login ---------- */
-let LM='student',ACC=[],HIDDEN=[];
+let LM='student',ACC=[],HIDDEN=[],INCLAUDE=false;
+const CFG=(typeof APP_CONFIG!=='undefined'&&APP_CONFIG)||{};
+function makeRTDB(base){
+  base=base.replace(/\/+$/,'');const u=p=>base+'/'+p+'.json';
+  const J=async r=>{if(!r.ok)throw new Error('db '+r.status);return r.json()};
+  return{
+    doc:p=>({
+      get:async()=>{const v=await J(await fetch(u(p),{cache:'no-store'}));return{exists:v!==null,data:()=>v}},
+      set:async o=>{await J(await fetch(u(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}))},
+      delete:async()=>{await J(await fetch(u(p),{method:'DELETE'}))}
+    }),
+    collection:c=>({get:async()=>{const v=(await J(await fetch(u(c),{cache:'no-store'})))||{};return{docs:Object.keys(v).map(id=>({id,data:()=>v[id]}))}}})
+  };
+}
+async function PH(em,pw){try{const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+  const b=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode('pq2|'+em.toLowerCase()),iterations:100000,hash:'SHA-256'},k,256);
+  return 'p2$'+[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){return H(em+':'+pw)}}
+async function pwOK(a,em,pw){return a.pw===await PH(em,pw)||a.pw===await H(em+':'+pw)}
 const VIS=()=>MODS.filter(m=>!HIDDEN.includes(m.id));
 async function saveHidden(){ls.set('pq:hidden',HIDDEN);if(DB){try{await DB.doc('settings/hidden').set({v:JSON.stringify(HIDDEN)})}catch(e){}}}
 async function H(s){try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('pq|'+s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){return hash(s)}}
@@ -49,7 +66,9 @@ async function storeKeys(pj,vj,pw){
   if(DB){try{if(pj)await DB.doc('adminkeys/pub').set({j:JSON.stringify(pj)});await DB.doc('adminkeys/priv').set(e)}catch(x){}}
 }
 async function ensureKeys(pw){
-  const pub=await getPub(),enc=await getEncPriv();
+  let pub=await getPub(),enc=await getEncPriv();
+  if(DB&&!pub&&!enc){const lp=ls.get('pq:adminkey',null),le=ls.get('pq:adminpriv',null);
+    if(lp&&le){try{await DB.doc('adminkeys/pub').set({j:JSON.stringify(lp)});await DB.doc('adminkeys/priv').set(le);pub=lp;enc=le}catch(e){}}}
   if(pub&&enc){try{const k=await wrapKey(pw,ub(enc.s));
     ls.set('pq:priv',JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ub(enc.iv)},k,ub(enc.ct)))));return}catch(e){}}
   const kp=await crypto.subtle.generateKey({name:'RSA-OAEP',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt']);
@@ -59,7 +78,8 @@ async function setPf(k,o){ls.set('pq:pf:'+k,o);if(DB){try{await DB.doc('pf2/'+k)
 function lockLeft(k){const f=ls.get('pq:fail:'+k,null);return f&&f.until>Date.now()?Math.ceil((f.until-Date.now())/1000):0}
 function failed(k){let f=ls.get('pq:fail:'+k,{n:0,until:0});if(f.until&&f.until<=Date.now())f={n:0,until:0};f.n++;if(f.n>=5)f.until=Date.now()+60000*Math.min(30,Math.pow(2,f.n-5));ls.set('pq:fail:'+k,f)}
 async function init(){
-  try{DB=await claude.use('db')}catch(e){DB=null}
+  try{DB=await claude.use('db');INCLAUDE=!!DB}catch(e){DB=null}
+  if(!DB&&CFG.rtdb)DB=makeRTDB(CFG.rtdb);
   const s=ls.get('pq:session',null);
   if(s){U=s;enter()}else show('login');
   setTimeout(()=>checkUpdate(false),Math.random()*8000);
@@ -90,7 +110,7 @@ async function emailCfg(){
 let LASTERR='';
 async function sendEmail(to,name,otp){
   const c=await emailCfg();if(!c||!c.s||!c.t||!c.k)return 'unconfigured';
-  if(DB)return 'blocked';
+  if(INCLAUDE)return 'blocked';
   try{const r=await fetch('https://api.emailjs.com/api/v1.0/email/send',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({service_id:c.s,template_id:c.t,user_id:c.k,template_params:{email:to,to_email:to,to_name:name,passcode:otp,otp:otp,time:new Date(Date.now()+OTP_MIN*60000).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}),message:'Your Revision Quiz OTP is '+otp+'. It is valid for '+OTP_MIN+' minutes.'}})});
     if(r.ok)return 'sent';LASTERR=(r.status+' '+(await r.text())).slice(0,160);return 'failed'}catch(e){LASTERR=String(e).slice(0,120);return 'failed'}
@@ -118,9 +138,9 @@ $('lbtn').onclick=async()=>{
     if(!f||!l){msg.textContent='Enter your first name and last name.';return}
     if(digits(mb).length<10){msg.textContent='Enter a valid 10-digit mobile number.';return}
     if(pw.length<6){msg.textContent='Password must be at least 6 characters.';return}
-    const pub=await getPub();if(!pub){msg.textContent='Registration is not open yet. Please ask the admin to log in once to set it up.';return}
+    const pub=await getPub();if(!pub){msg.textContent=DB?'Registration is not open yet. Please ask the admin to log in once to set it up.':'Sign-up needs the shared database, which is not connected yet. Please tell your admin.';return}
     const k=ekey(em);if(await getAcc(k)){msg.textContent='This email is already registered. Please login.';return}
-    await setAcc(k,{name:f,pw:await H(em+':'+pw)});await setPf(k,await encProfile(pub,{first:f,last:l,mobile:mb,email:em}));
+    await setAcc(k,{name:f,pw:await PH(em,pw)});await setPf(k,await encProfile(pub,{first:f,last:l,mobile:mb,email:em}));
     U={id:k,name:f,email:em,admin:false};ls.set('pq:session',U);['lfirst','llast','lmobile','lpin'].forEach(i=>$(i).value='');msg.textContent='';enter();return}
   if(LM==='forgot'){
     const k=ekey(em),a=await getAcc(k);
@@ -142,20 +162,21 @@ $('lbtn').onclick=async()=>{
     if(!r)r=ls.get('pq:otp:'+k,null);
     if(!r||Date.now()>r.exp||(await H($('lotp').value.trim()+k))!==r.h){failed(em);msg.textContent='Wrong or expired OTP.';return}
     const a=await getAcc(k);if(!a){msg.textContent='Account not found.';return}
-    a.pw=await H(em+':'+pw);await setAcc(k,a);localStorage.removeItem('pq:otp:'+k);if(DB)try{await DB.doc('otps/'+k).delete()}catch(e){}
+    a.pw=await PH(em,pw);await setAcc(k,a);localStorage.removeItem('pq:otp:'+k);if(DB)try{await DB.doc('otps/'+k).delete()}catch(e){}
     setMode('student');$('lpin').value='';$('lotp').value='';$('lmsg').style.color='var(--ok)';$('lmsg').textContent='Password changed. Please login with your new password.';return}
   if(pw.length<6){msg.textContent='Password must be at least 6 characters.';return}
-  const ph=await H(em+':'+pw);
   if(LM==='admin'){
     let a=await getAcc('admin');
-    if(a&&a.email){if(a.email!==em||a.pw!==ph){failed(em);msg.textContent='Wrong admin email or password.';return}}
-    else{a={name:'Admin',email:em,pw:ph};await setAcc('admin',a)}
+    if(a&&a.email){if(a.email!==em||!(await pwOK(a,em,pw))){failed(em);msg.textContent='Wrong admin email or password.';return}}
+    else{a={name:'Admin',email:em,pw:await PH(em,pw)};await setAcc('admin',a)}
+    if(a.pw.indexOf('p2$')!==0){a.pw=await PH(em,pw);await setAcc('admin',a)}
     await ensureKeys(pw);
     U={id:'admin',name:'Admin',email:em,admin:true};
   }else{
     const k=ekey(em),a=await getAcc(k);
     if(!a){msg.textContent='No account for this email. Ask the admin to create your login.';return}
-    if(a.pw!==ph){failed(em);msg.textContent='Wrong password.';return}
+    if(!(await pwOK(a,em,pw))){failed(em);msg.textContent='Wrong password.';return}
+    if(a.pw.indexOf('p2$')!==0){a.pw=await PH(em,pw);await setAcc(k,a)}
     U={id:k,name:a.name||a.first||'Student',email:em,admin:false};
   }
   localStorage.removeItem('pq:fail:'+em);ls.set('pq:session',U);$('lpin').value='';msg.textContent='';enter();
@@ -207,17 +228,17 @@ async function home(){
 }
 $('cpBtn').onclick=async()=>{const m=$('cpMsg');m.style.color='var(--bad)';const a=await getAcc(U.id);if(!a){m.textContent='Account not found.';return}
   const o=$('cpOld').value,n=$('cpNew').value;if(n.length<6){m.textContent='New password needs at least 6 characters.';return}
-  if(a.pw!==await H(U.email+':'+o)){m.textContent='Current password is wrong.';return}
-  a.pw=await H(U.email+':'+n);await setAcc(U.id,a);if(U.admin){const v=ls.get('pq:priv',null);if(v)await storeKeys(null,v,n)}$('cpOld').value=$('cpNew').value='';m.style.color='var(--ok)';m.textContent='Password updated ✔'};
+  if(!(await pwOK(a,U.email,o))){m.textContent='Current password is wrong.';return}
+  a.pw=await PH(U.email,n);await setAcc(U.id,a);if(U.admin){const v=ls.get('pq:priv',null);if(v)await storeKeys(null,v,n)}$('cpOld').value=$('cpNew').value='';m.style.color='var(--ok)';m.textContent='Password updated ✔'};
 $('mods').onclick=e=>{const b=e.target.closest('button');if(b)openMod(b.dataset.m)};
 $('homeBtn').onclick=()=>{persist();ls.set('pq:last:'+U.id,null);M=null;home()};
 
 /* ---------- persistence (survives refresh) ---------- */
 function persist(now){
-  if(!M)return;
-  const d={ans,idx,done,t0:T0};
-  ls.set(pk(M.id),d);ls.set('pq:last:'+U.id,M.id);
-  if(DB){clearTimeout(saveT);const run=()=>DB.doc('prog/'+U.id+'_'+M.id).set({v:JSON.stringify(d)}).catch(()=>{});
+  if(!M||!U)return;
+  const d={ans,idx,done,t0:T0},uid=U.id,mid=M.id;
+  ls.set(pk(mid),d);ls.set('pq:last:'+uid,mid);
+  if(DB){clearTimeout(saveT);const run=()=>DB.doc('prog/'+uid+'_'+mid).set({v:JSON.stringify(d)}).catch(()=>{});
     if(now)run();else saveT=setTimeout(run,2500)}
 }
 let T0=0,TT=null;
@@ -368,7 +389,7 @@ async function loadAdmin(){
     if(b.dataset.all){await setAccess(b.dataset.all,VIS().map(m=>m.id));loadAdmin()}
     else if(b.dataset.none){await setAccess(b.dataset.none,[]);loadAdmin()}
     else if(b.dataset.pw){const id=b.dataset.pw,a=await getAcc(id),p=pf[id]||{};const em=p.email||(a&&a.email);if(a&&!em){$('pwMsg').classList.remove('hide');$('pwMsg').textContent='Log out and log in as admin again, then retry.';return}if(a){const t=genPw();
-      a.pw=await H(em+':'+t);await setAcc(id,a);
+      a.pw=await PH(em,t);await setAcc(id,a);
       $('pwMsg').classList.remove('hide');$('pwMsg').innerHTML='New temporary password for <b>'+esc(nm(p)||a.name)+'</b> ('+esc(em)+'): <b style="font-size:18px">'+t+'</b><br>Send it to the student. They can change it after login.';scrollTo(0,0)}}
     else if(b.dataset.rm){if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}await removeUser(b.dataset.rm);loadAdmin()}
     else if(b.dataset.del){const id=b.dataset.del;ls.set('pq:res:'+id,{});if(DB)try{await DB.doc('results/'+id).delete()}catch(er){}loadAdmin()}};
@@ -452,6 +473,7 @@ async function loadContent(){
     if(!c)c=ls.get('pq:contentcache',null);
     if(U&&U.admin){const dr=ls.get('pq:contentdraft',null);if(dr)c=dr}
   }
+  if(!c&&DB&&!INCLAUDE){try{const r=await fetch('content.json?'+Date.now(),{cache:'no-store'});if(r.ok)c=await r.json()}catch(e){}}
   CONTENT={notes:(c&&c.notes)||[],classes:(c&&c.classes)||[]};CT=Date.now();CLOADED=true;
 }
 async function saveContent(){

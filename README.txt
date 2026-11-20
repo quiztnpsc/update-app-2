@@ -1,15 +1,16 @@
-Revision Quiz app  (version 2026.11.14)
+Revision Quiz app  (version 2026.11.15)
 
-UPLOAD TO GITHUB (this update changes the file layout)
-1. Unzip this folder. On GitHub: your repo > Add file > Upload files.
-2. Drag EVERYTHING from the unzipped folder in, including the two folders "data" and "sheets". Commit changes.
-3. Optional: delete the old data.js (24 MB) from the repo - it is no longer used.
-4. Wait about a minute. Students then see "Update now" in the app (or press "Check for updates").
+THE FIX: students on other phones could not sign up ("registration not open").
+Reason: without a shared database every phone has its own separate data. This version connects to a free Firebase
+Realtime Database so ALL phones share users, scores, access, notes and live classes.
 
-WHAT'S NEW
-- Test timer: 90 minutes per 100 questions (e.g. 150 questions = 135 min). It keeps running if the app is closed, and the test submits itself when time is up.
-- Faster for many users: the app now loads only ~60 KB at start; each test downloads only when opened, then is saved on the phone.
-- Safety limits: 5 wrong passwords = temporary lock; OTP emails limited to 1 per minute and 5 per day per device.
+STEPS (once)
+1. console.firebase.google.com > Add project (any name, turn Google Analytics off).
+2. Build > Realtime Database > Create Database > choose Singapore > "Start in locked mode" > Enable.
+3. Open the "Rules" tab, delete everything, paste the contents of firebase_rules.json, click Publish.
+4. Open the "Data" tab and copy the database link at the top (looks like https://NAME-default-rtdb.asia-southeast1.firebasedatabase.app).
+5. (Already done for you: config.js contains your database link.)
+6. Upload all other files of this folder to GitHub (Add file > Upload files), Commit.
+7. Open the app, log in as ADMIN first (this turns on sign-up), then students can sign up from any phone.
 
-FUTURE UPDATES
-Upload only the changed files (usually app.js and version.json). Change "v" in version.json so phones notice.
+NOTE: students who signed up earlier on their own phones must sign up again (their old accounts were only on that phone).
