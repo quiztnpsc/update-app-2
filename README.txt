@@ -1,16 +1,17 @@
-Revision Quiz app  (version 2026.11.15)
+Revision Quiz app  (version 2026.11.16)
 
-THE FIX: students on other phones could not sign up ("registration not open").
-Reason: without a shared database every phone has its own separate data. This version connects to a free Firebase
-Realtime Database so ALL phones share users, scores, access, notes and live classes.
+TWO ADMINS
+config.js lists the approved admin emails (only these can log in on the Admin tab):
+  admins:["aishusk2006@gmail.com","bsmanojprabaharan2001@gmail.com"]
+Each admin sets their OWN password the first time they log in (Admin tab). To change who can be admin, edit config.js on GitHub
+(pencil icon), then Commit. The old single admin account in the database is no longer used (this is the "reset").
 
-STEPS (once)
-1. console.firebase.google.com > Add project (any name, turn Google Analytics off).
-2. Build > Realtime Database > Create Database > choose Singapore > "Start in locked mode" > Enable.
-3. Open the "Rules" tab, delete everything, paste the contents of firebase_rules.json, click Publish.
-4. Open the "Data" tab and copy the database link at the top (looks like https://NAME-default-rtdb.asia-southeast1.firebasedatabase.app).
-5. (Already done for you: config.js contains your database link.)
-6. Upload all other files of this folder to GitHub (Add file > Upload files), Commit.
-7. Open the app, log in as ADMIN first (this turns on sign-up), then students can sign up from any phone.
+DATABASE
+config.js also holds your Firebase Realtime Database link (rtdb). Firebase rules: see firebase_rules.json.
 
-NOTE: students who signed up earlier on their own phones must sign up again (their old accounts were only on that phone).
+UPLOAD
+GitHub > Add file > Upload files > drag EVERYTHING (including the data and sheets folders) > Commit changes.
+Do not upload content.json if you have added your own notes / live classes.
+
+NOTE: students who signed up before may show "-" for mobile/email (their details were protected with the old admin key).
+New sign-ups are readable by both admins.

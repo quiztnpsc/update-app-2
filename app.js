@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.15";
+const APP_VERSION="2026.11.16";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -27,6 +27,47 @@ async function PH(em,pw){try{const k=await crypto.subtle.importKey('raw',new Tex
   const b=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode('pq2|'+em.toLowerCase()),iterations:100000,hash:'SHA-256'},k,256);
   return 'p2$'+[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){return H(em+':'+pw)}}
 async function pwOK(a,em,pw){return a.pw===await PH(em,pw)||a.pw===await H(em+':'+pw)}
+/* ---- up to two (or more) approved admins, each with their own password and key ---- */
+const ADMINS=((CFG.admins)||[]).map(e=>String(e).trim().toLowerCase()).filter(Boolean);
+const akey=e=>'a_'+hash(e.toLowerCase());
+async function kget(n){if(DB){try{const d=await DB.doc('adminkeys/'+n).get();return d.exists?d.data():null}catch(e){return null}}return ls.get('pq:ak:'+n,null)}
+async function kset(n,o){ls.set('pq:ak:'+n,o);if(DB){try{await DB.doc('adminkeys/'+n).set(o)}catch(e){}}}
+async function wrapPriv(vj,pw){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),k=await wrapKey(pw,salt);
+  return{s:b64(salt),iv:b64(iv),ct:b64(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,new TextEncoder().encode(JSON.stringify(vj))))}}
+async function ensureKeysM(pw,ak){
+  const pub=await kget('pub_'+ak),enc=await kget('priv_'+ak);
+  if(pub&&enc){try{const k=await wrapKey(pw,ub(enc.s));
+    ls.set('pq:priv',JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ub(enc.iv)},k,ub(enc.ct)))));ls.set('pq:privk',ak);return}catch(e){}}
+  const kp=await crypto.subtle.generateKey({name:'RSA-OAEP',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt']);
+  const pj=await crypto.subtle.exportKey('jwk',kp.publicKey),vj=await crypto.subtle.exportKey('jwk',kp.privateKey);
+  await kset('pub_'+ak,{j:JSON.stringify(pj)});await kset('priv_'+ak,await wrapPriv(vj,pw));
+  ls.set('pq:priv',vj);ls.set('pq:privk',ak);
+}
+async function adminPubs(){
+  const ok=new Set(ADMINS.map(akey));let out=[];
+  if(DB){try{const r=await DB.collection('adminkeys').get();out=r.docs.filter(d=>d.id.indexOf('pub_')===0&&ok.has(d.id.slice(4))).map(d=>({ak:d.id.slice(4),jwk:JSON.parse(d.data().j)}))}catch(e){}}
+  else{ok.forEach(ak=>{const d=ls.get('pq:ak:pub_'+ak,null);if(d)out.push({ak,jwk:JSON.parse(d.j)})})}
+  return out;
+}
+async function encProfileM(pubs,obj){
+  const ak=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']),iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},ak,new TextEncoder().encode(JSON.stringify(obj))),rawk=await crypto.subtle.exportKey('raw',ak),eks={};
+  for(const p of pubs){const pk=await crypto.subtle.importKey('jwk',p.jwk,RSA,false,['encrypt']);eks[p.ak]=b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},pk,rawk))}
+  return{eks,iv:b64(iv),ct:b64(ct)};
+}
+async function unwrapAes(priv,ek){const pk=await crypto.subtle.importKey('jwk',priv,RSA,false,['decrypt']);return crypto.subtle.decrypt({name:'RSA-OAEP'},pk,ub(ek))}
+async function decProfileM(priv,ak,d){
+  if(!d.eks||!d.eks[ak])throw new Error('no key');
+  const aes=await crypto.subtle.importKey('raw',await unwrapAes(priv,d.eks[ak]),'AES-GCM',false,['decrypt']);
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ub(d.iv)},aes,ub(d.ct))));
+}
+async function rewrapFor(raw,pubs,priv,ak){
+  for(const id in raw){const d=raw[id];if(!d.eks||!d.eks[ak])continue;let ch=false,rk=null;
+    for(const p of pubs){if(d.eks[p.ak])continue;try{rk=rk||await unwrapAes(priv,d.eks[ak]);const pk=await crypto.subtle.importKey('jwk',p.jwk,RSA,false,['encrypt']);d.eks[p.ak]=b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},pk,rk));ch=true}catch(e){}}
+    if(ch)await setPf(id,d)}
+}
+async function canEnc(){return ADMINS.length?(await adminPubs()).length>0:!!(await getPub())}
+async function ENC(obj){return ADMINS.length?encProfileM(await adminPubs(),obj):encProfile(await getPub(),obj)}
 const VIS=()=>MODS.filter(m=>!HIDDEN.includes(m.id));
 async function saveHidden(){ls.set('pq:hidden',HIDDEN);if(DB){try{await DB.doc('settings/hidden').set({v:JSON.stringify(HIDDEN)})}catch(e){}}}
 async function H(s){try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('pq|'+s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){return hash(s)}}
@@ -138,9 +179,9 @@ $('lbtn').onclick=async()=>{
     if(!f||!l){msg.textContent='Enter your first name and last name.';return}
     if(digits(mb).length<10){msg.textContent='Enter a valid 10-digit mobile number.';return}
     if(pw.length<6){msg.textContent='Password must be at least 6 characters.';return}
-    const pub=await getPub();if(!pub){msg.textContent=DB?'Registration is not open yet. Please ask the admin to log in once to set it up.':'Sign-up needs the shared database, which is not connected yet. Please tell your admin.';return}
+    if(!(await canEnc())){msg.textContent=DB?'Registration is not open yet. Please ask the admin to log in once to set it up.':'Sign-up needs the shared database, which is not connected yet. Please tell your admin.';return}
     const k=ekey(em);if(await getAcc(k)){msg.textContent='This email is already registered. Please login.';return}
-    await setAcc(k,{name:f,pw:await PH(em,pw)});await setPf(k,await encProfile(pub,{first:f,last:l,mobile:mb,email:em}));
+    await setAcc(k,{name:f,pw:await PH(em,pw)});await setPf(k,await ENC({first:f,last:l,mobile:mb,email:em}));
     U={id:k,name:f,email:em,admin:false};ls.set('pq:session',U);['lfirst','llast','lmobile','lpin'].forEach(i=>$(i).value='');msg.textContent='';enter();return}
   if(LM==='forgot'){
     const k=ekey(em),a=await getAcc(k);
@@ -165,7 +206,15 @@ $('lbtn').onclick=async()=>{
     a.pw=await PH(em,pw);await setAcc(k,a);localStorage.removeItem('pq:otp:'+k);if(DB)try{await DB.doc('otps/'+k).delete()}catch(e){}
     setMode('student');$('lpin').value='';$('lotp').value='';$('lmsg').style.color='var(--ok)';$('lmsg').textContent='Password changed. Please login with your new password.';return}
   if(pw.length<6){msg.textContent='Password must be at least 6 characters.';return}
-  if(LM==='admin'){
+  if(LM==='admin'&&ADMINS.length){
+    if(!ADMINS.includes(em)){failed(em);msg.textContent='This email is not allowed to be an admin.';return}
+    const ak=akey(em);let a=await getAcc(ak);
+    if(a&&a.pw){if(!(await pwOK(a,em,pw))){failed(em);msg.textContent='Wrong admin email or password.';return}}
+    else{a={name:'Admin',email:em,pw:await PH(em,pw)};await setAcc(ak,a)}
+    if(a.pw.indexOf('p2$')!==0){a.pw=await PH(em,pw);await setAcc(ak,a)}
+    await ensureKeysM(pw,ak);
+    U={id:ak,name:'Admin',email:em,admin:true};
+  }else if(LM==='admin'){
     let a=await getAcc('admin');
     if(a&&a.email){if(a.email!==em||!(await pwOK(a,em,pw))){failed(em);msg.textContent='Wrong admin email or password.';return}}
     else{a={name:'Admin',email:em,pw:await PH(em,pw)};await setAcc('admin',a)}
@@ -181,7 +230,7 @@ $('lbtn').onclick=async()=>{
   }
   localStorage.removeItem('pq:fail:'+em);ls.set('pq:session',U);$('lpin').value='';msg.textContent='';enter();
 };
-$('lout').onclick=()=>{persist(true);if(U&&U.admin)localStorage.removeItem('pq:priv');ls.set('pq:session',null);location.reload()};
+$('lout').onclick=()=>{persist(true);if(U&&U.admin){localStorage.removeItem('pq:priv');localStorage.removeItem('pq:privk')}ls.set('pq:session',null);location.reload()};
 
 /* ---------- app updates (installed app) ---------- */
 const APPV=typeof APP_VERSION==='undefined'?null:APP_VERSION;
@@ -204,6 +253,7 @@ async function doUpdate(){
 $('updChk').onclick=()=>checkUpdate(true);
 
 async function enter(){
+  if(U.admin&&ADMINS.length&&!ADMINS.includes((U.email||'').toLowerCase())){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This email is not an admin.';return}
   if(!U.admin){const a=await getAcc(U.id);if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account was removed by the admin.';return}}
   await loadCustom();
   $('who').textContent=U.name+(U.admin?' (admin)':'');
@@ -229,7 +279,7 @@ async function home(){
 $('cpBtn').onclick=async()=>{const m=$('cpMsg');m.style.color='var(--bad)';const a=await getAcc(U.id);if(!a){m.textContent='Account not found.';return}
   const o=$('cpOld').value,n=$('cpNew').value;if(n.length<6){m.textContent='New password needs at least 6 characters.';return}
   if(!(await pwOK(a,U.email,o))){m.textContent='Current password is wrong.';return}
-  a.pw=await PH(U.email,n);await setAcc(U.id,a);if(U.admin){const v=ls.get('pq:priv',null);if(v)await storeKeys(null,v,n)}$('cpOld').value=$('cpNew').value='';m.style.color='var(--ok)';m.textContent='Password updated ✔'};
+  a.pw=await PH(U.email,n);await setAcc(U.id,a);if(U.admin){const v=ls.get('pq:priv',null);if(v){if(ADMINS.length)await kset('priv_'+U.id,await wrapPriv(v,n));else await storeKeys(null,v,n)}}$('cpOld').value=$('cpNew').value='';m.style.color='var(--ok)';m.textContent='Password updated ✔'};
 $('mods').onclick=e=>{const b=e.target.closest('button');if(b)openMod(b.dataset.m)};
 $('homeBtn').onclick=()=>{persist();ls.set('pq:last:'+U.id,null);M=null;home()};
 
@@ -351,7 +401,7 @@ async function loadAdmin(){
   try{
     if(DB){
       const [a,p,o,r,c]=await Promise.all([DB.collection('accounts').get(),DB.collection('pf2').get(),DB.collection('profiles').get().catch(()=>({docs:[]})),DB.collection('results').get(),DB.collection('access').get()]);
-      ac=a.docs.filter(d=>d.id!=='admin').map(d=>({id:d.id,...d.data()}));
+      ac=a.docs.filter(d=>d.id!=='admin'&&d.id.indexOf('a_')!==0).map(d=>({id:d.id,...d.data()}));
       p.docs.forEach(d=>raw[d.id]=d.data());o.docs.forEach(d=>old[d.id]=d.data());
       r.docs.forEach(d=>{try{res[d.id]=JSON.parse(d.data().r)}catch(e){}});
       c.docs.forEach(d=>{try{acs[d.id]=JSON.parse(d.data().m)}catch(e){}});
@@ -363,15 +413,16 @@ async function loadAdmin(){
       ac.forEach(x=>{res[x.id]=ls.get('pq:res:'+x.id,{});acs[x.id]=ls.get('pq:access:'+x.id,[])});
     }
   }catch(e){$('admBody').innerHTML='<div class="card">Could not load data.</div>';return}
-  const priv=ls.get('pq:priv',null),pub=await getPub();
-  if(pub){ // move any readable details into the encrypted store
+  const priv=ls.get('pq:priv',null),aKey=ls.get('pq:privk',null);
+  if(ADMINS.length&&priv&&aKey)await rewrapFor(raw,await adminPubs(),priv,aKey);
+  if(await canEnc()){ // move any readable details into the encrypted store
     for(const x of ac){if(raw[x.id])continue;
       const src=old[x.id]||((x.email||x.mobile||x.first||x.last)?{first:x.first||x.name||'',last:x.last||'',mobile:x.mobile||'',email:x.email||''}:null);
       if(!src)continue;
-      raw[x.id]=await encProfile(pub,src);await setPf(x.id,raw[x.id]);
+      raw[x.id]=await ENC(src);await setPf(x.id,raw[x.id]);
       if(old[x.id]){localStorage.removeItem('pq:prof:'+x.id);if(DB)try{await DB.doc('profiles/'+x.id).delete()}catch(e){}}
       if(x.email||x.mobile||x.first||x.last)await setAcc(x.id,{name:src.first||x.name||'',pw:x.pw})}}
-  if(priv)for(const id in raw){try{pf[id]=await decProfile(priv,raw[id])}catch(e){}}
+  if(priv)for(const id in raw){try{pf[id]=ADMINS.length?await decProfileM(priv,aKey,raw[id]):await decProfile(priv,raw[id])}catch(e){}}
   if(!priv)$('pwMsg').classList.remove('hide'),$('pwMsg').innerHTML='🔒 To see student details, please log out and log in as admin again.';
   const c=(await emailCfg())||{};$('ejS').value=c.s||'';$('ejT').value=c.t||'';$('ejK').value=c.k||'';
   qbList();await loadContent();cRender();
