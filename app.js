@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.16";
+const APP_VERSION="2026.11.17";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -65,6 +65,18 @@ async function rewrapFor(raw,pubs,priv,ak){
   for(const id in raw){const d=raw[id];if(!d.eks||!d.eks[ak])continue;let ch=false,rk=null;
     for(const p of pubs){if(d.eks[p.ak])continue;try{rk=rk||await unwrapAes(priv,d.eks[ak]);const pk=await crypto.subtle.importKey('jwk',p.jwk,RSA,false,['encrypt']);d.eks[p.ak]=b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},pk,rk));ch=true}catch(e){}}
     if(ch)await setPf(id,d)}
+}
+/* ---- recover students saved with the OLD single-admin key (format {ek,iv,ct}) ---- */
+async function legacyKey(pw){
+  const enc=await getEncPriv();if(!enc||!pw)return null;
+  try{const k=await wrapKey(pw,ub(enc.s));return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ub(enc.iv)},k,ub(enc.ct))))}catch(e){return null}
+}
+async function migrateLegacy(raw,lpriv){
+  if(!ADMINS.length||!(await adminPubs()).length)return 0;
+  let n=0;
+  for(const id in raw){const d=raw[id];if(!d||d.eks||!d.ek)continue;
+    try{const o=await decProfile(lpriv,d);const nd=await ENC(o);await setPf(id,nd);raw[id]=nd;n++}catch(e){}}
+  return n;
 }
 async function canEnc(){return ADMINS.length?(await adminPubs()).length>0:!!(await getPub())}
 async function ENC(obj){return ADMINS.length?encProfileM(await adminPubs(),obj):encProfile(await getPub(),obj)}
@@ -213,6 +225,7 @@ $('lbtn').onclick=async()=>{
     else{a={name:'Admin',email:em,pw:await PH(em,pw)};await setAcc(ak,a)}
     if(a.pw.indexOf('p2$')!==0){a.pw=await PH(em,pw);await setAcc(ak,a)}
     await ensureKeysM(pw,ak);
+    try{const lp=await legacyKey(pw);if(lp)ls.set('pq:lpriv',lp)}catch(e){}
     U={id:ak,name:'Admin',email:em,admin:true};
   }else if(LM==='admin'){
     let a=await getAcc('admin');
@@ -422,7 +435,13 @@ async function loadAdmin(){
       raw[x.id]=await ENC(src);await setPf(x.id,raw[x.id]);
       if(old[x.id]){localStorage.removeItem('pq:prof:'+x.id);if(DB)try{await DB.doc('profiles/'+x.id).delete()}catch(e){}}
       if(x.email||x.mobile||x.first||x.last)await setAcc(x.id,{name:src.first||x.name||'',pw:x.pw})}}
+  {const lp=ls.get('pq:lpriv',null);if(lp&&priv)await migrateLegacy(raw,lp)}
   if(priv)for(const id in raw){try{pf[id]=ADMINS.length?await decProfileM(priv,aKey,raw[id]):await decProfile(priv,raw[id])}catch(e){}}
+  {const left=Object.keys(raw).filter(id=>raw[id]&&raw[id].ek&&!raw[id].eks);
+   if(left.length&&priv){const bx=$('pwMsg');bx.classList.remove('hide');
+     bx.innerHTML='🔒 '+left.length+' older student(s) were saved with the previous admin key. Enter the <b>old admin password</b> once to unlock their details.<input type="password" id="oldPw" placeholder="Old admin password"><button class="btn" id="oldGo" style="margin-top:6px">Unlock old students</button><div id="oldMsg" class="sub"></div>';
+     $('oldGo').onclick=async()=>{const lp=await legacyKey($('oldPw').value);if(!lp){$('oldMsg').textContent='That password did not unlock the old key.';return}
+       ls.set('pq:lpriv',lp);const n=await migrateLegacy(raw,lp);$('oldMsg').textContent='Recovered '+n+' student(s).';$('pwMsg').classList.add('hide');loadAdmin()}}}
   if(!priv)$('pwMsg').classList.remove('hide'),$('pwMsg').innerHTML='🔒 To see student details, please log out and log in as admin again.';
   const c=(await emailCfg())||{};$('ejS').value=c.s||'';$('ejT').value=c.t||'';$('ejK').value=c.k||'';
   qbList();await loadContent();cRender();

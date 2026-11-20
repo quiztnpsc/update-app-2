@@ -1,4 +1,4 @@
-const A='quiz-app-v1',D='quiz-data-v1';
+const A='quiz-app-v2',D='quiz-data-v1';
 const APP=['./','index.html','app.js','data/meta.js','manifest.webmanifest','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(A).then(c=>c.addAll(APP)));self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil(Promise.all([caches.keys().then(k=>Promise.all(k.filter(x=>x!==A&&x!==D).map(x=>caches.delete(x)))),caches.open(D).then(c=>c.delete(new Request('data.js')))]).then(()=>self.clients.claim())));
