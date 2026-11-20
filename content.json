@@ -1,0 +1,24 @@
+{
+ "notes": [
+  {
+   "id": "welcome",
+   "title": "Welcome – how to use Notes",
+   "subject": "General",
+   "body": "This is a sample note. Your teacher can add notes here with text and an optional PDF or link.\n\nTip: use the search box to find a note quickly.",
+   "link": "",
+   "ts": 1794000000000
+  }
+ ],
+ "classes": [
+  {
+   "id": "sample1",
+   "title": "Sample live class (delete me)",
+   "subject": "General",
+   "start": "2026-11-15T12:30:00.000Z",
+   "dur": 60,
+   "link": "https://meet.google.com/",
+   "rec": "",
+   "desc": "Replace this with your real class from the Admin page."
+  }
+ ]
+}
