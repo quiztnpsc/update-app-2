@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.16";
+const APP_VERSION="2026.11.17";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -424,6 +424,8 @@ async function loadAdmin(){
       if(x.email||x.mobile||x.first||x.last)await setAcc(x.id,{name:src.first||x.name||'',pw:x.pw})}}
   if(priv)for(const id in raw){try{pf[id]=ADMINS.length?await decProfileM(priv,aKey,raw[id]):await decProfile(priv,raw[id])}catch(e){}}
   if(!priv)$('pwMsg').classList.remove('hide'),$('pwMsg').innerHTML='🔒 To see student details, please log out and log in as admin again.';
+  const lockedN=Object.keys(raw).filter(id=>!pf[id]).length;
+  $('recCard').classList.toggle('hide',!(ADMINS.length&&priv&&lockedN));$('recNote').textContent=lockedN?lockedN+' student(s) have locked details.':'';
   const c=(await emailCfg())||{};$('ejS').value=c.s||'';$('ejT').value=c.t||'';$('ejK').value=c.k||'';
   qbList();await loadContent();cRender();
   const st=ac.map(x=>({id:x.id,...x,...(pf[x.id]||{})}));
@@ -445,6 +447,19 @@ async function loadAdmin(){
     else if(b.dataset.rm){if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}await removeUser(b.dataset.rm);loadAdmin()}
     else if(b.dataset.del){const id=b.dataset.del;ls.set('pq:res:'+id,{});if(DB)try{await DB.doc('results/'+id).delete()}catch(er){}loadAdmin()}};
 }
+$('recGo').onclick=async()=>{
+  const m=$('recMsg');m.style.color='var(--bad)';const pw=$('recPw').value;if(!pw){m.textContent='Enter the old admin password.';return}
+  m.textContent='Working…';
+  const enc=(await kget('priv'))||ls.get('pq:adminpriv',null);let vj=null;
+  if(enc){try{const k=await wrapKey(pw,ub(enc.s));vj=JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ub(enc.iv)},k,ub(enc.ct))))}catch(e){}}
+  if(!vj){m.textContent='That password does not unlock the old details. Use the password of the person who first logged in as admin before the update.';return}
+  const raw={};
+  if(DB){try{const r=await DB.collection('pf2').get();r.docs.forEach(d=>raw[d.id]=d.data())}catch(e){}}
+  else{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.indexOf('pq:pf:')===0)raw[k.slice(6)]=ls.get(k,{})}}
+  let n=0;
+  for(const id in raw){const d=raw[id];if(!d||!d.ek)continue;try{const o=await decProfile(vj,d);await setPf(id,await ENC(o));n++}catch(e){}}
+  m.style.color=n?'var(--ok)':'var(--bad)';m.textContent=n?'✔ Recovered details of '+n+' student(s).':'Nothing could be recovered.';
+  $('recPw').value='';loadAdmin()};
 $('ejSave').onclick=async()=>{const c={s:$('ejS').value.trim(),t:$('ejT').value.trim(),k:$('ejK').value.trim()};ls.set('pq:emailjs',c);
   if(DB)try{await DB.doc('settings/emailjs').set(c)}catch(e){}$('ejMsg').style.color='var(--ok)';$('ejMsg').textContent='Saved.'};
 $('ejTest').onclick=async()=>{$('ejMsg').style.color='var(--bad)';$('ejMsg').textContent='Sending…';

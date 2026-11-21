@@ -1,4 +1,4 @@
-Revision Quiz app  (version 2026.11.16)
+Revision Quiz app  (version 2026.11.17)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -15,3 +15,9 @@ Do not upload content.json if you have added your own notes / live classes.
 
 NOTE: students who signed up before may show "-" for mobile/email (their details were protected with the old admin key).
 New sign-ups are readable by both admins.
+
+RECOVERING DETAILS OF STUDENTS WHO SIGNED UP BEFORE THE TWO-ADMIN UPDATE
+After uploading this version, log in as an approved admin (Admin tab). If some students show locked details, a card
+"Recover old student details" appears in the Admin page. Enter the password of the person who FIRST logged in as admin
+on this app before the update. Details are then unlocked for both admins.
+IMPORTANT: before recovering, do NOT delete the 'admin' row or the 'adminkeys' rows in Firebase.
