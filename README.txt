@@ -1,4 +1,4 @@
-Revision Quiz app  (version 2026.11.17)
+Revision Quiz app  (version 2026.11.21)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -21,3 +21,21 @@ After uploading this version, log in as an approved admin (Admin tab). If some s
 "Recover old student details" appears in the Admin page. Enter the password of the person who FIRST logged in as admin
 on this app before the update. Details are then unlocked for both admins.
 IMPORTANT: before recovering, do NOT delete the 'admin' row or the 'adminkeys' rows in Firebase.
+
+LOCKED STUDENT DETAILS - WHAT THE ADMIN PAGE TELLS YOU
+- "Ask the other admin": the student signed up while only the other admin had logged in. The other admin opens the Admin page once; then refresh.
+- "Signed up before the two-admin update": enter the first admin's old password to unlock. If that does not work, the old key was replaced
+  and the details cannot be recovered. Use "Remove these students" so they can sign up again (their scores are removed too).
+
+NEW IN 2026.11.20
+1. TEST SCHEDULE: Admin page > "Schedule tests": set when each test opens and closes (date + time). Outside that time students cannot
+   start it; a test in progress submits itself at the closing time. Leave a time empty for no limit on that side. Admins are never locked out.
+2. NOTES UPLOAD: Admin page > Add a note > attach a PDF / image / document (up to 4 MB). Needs the Firebase database.
+   IMPORTANT: in Firebase > Realtime Database > Rules, paste the contents of firebase_rules.json again (it adds "files") and Publish.
+3. New app logo (peacock and golden pen).
+
+NEW IN 2026.11.21 - ADMIN CAN SEE WHICH OPTION EACH STUDENT MARKED
+Admin page > "Check a student's answers" (choose student + test), or the "👁 Answers" button in a student's score cell.
+Shows every question with the student's marked option, the correct option, Correct / Wrong / Not answered, filters, and
+whether the test is submitted or still in progress. Works for all built-in tests and for quizzes you created.
+Needs the Firebase database (answers are saved there a few seconds after each click). No new Firebase rules are needed.

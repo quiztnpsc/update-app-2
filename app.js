@@ -1,11 +1,11 @@
-const APP_VERSION="2026.11.17";
+const APP_VERSION="2026.11.21";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ls={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 let U=null,DB=null,M=null,Q=[],E='',ans={},idx=0,done=false,filter='all',shown=40,saveT=null;
 const hash=s=>{let h=5381;for(const c of s)h=((h<<5)+h+c.charCodeAt(0))>>>0;return String(h)};
-const show=v=>['login','home','play','result','admin','notes','live'].forEach(x=>$(x).classList.toggle('hide',x!==v));
+const show=v=>['login','home','play','result','admin','notes','live','ansv'].forEach(x=>$(x).classList.toggle('hide',x!==v));
 const pk=m=>'pq:p:'+U.id+':'+m;
 
 /* ---------- login ---------- */
@@ -185,7 +185,7 @@ $('lbtn').onclick=async()=>{
     U={id:k,name:f,email:em,admin:false};ls.set('pq:session',U);['lfirst','llast','lmobile','lpin'].forEach(i=>$(i).value='');msg.textContent='';enter();return}
   if(LM==='forgot'){
     const k=ekey(em),a=await getAcc(k);
-    if(!a){msg.textContent='No account found for this email. Ask the admin to create your login.';return}
+    if(!a){msg.textContent='No account found for this email. Tap “Back to login”, then “Create new account” to sign up.';return}
     if(!(await emailCfg())?.k){msg.textContent='Email OTP is not set up yet. Please ask the admin to reset your password.';return}
     const sl=ls.get('pq:otpsend',[]).filter(t=>Date.now()-t<86400000);
     if(sl.length&&Date.now()-sl[sl.length-1]<60000){msg.textContent='Please wait a minute before asking for another OTP.';return}
@@ -223,7 +223,7 @@ $('lbtn').onclick=async()=>{
     U={id:'admin',name:'Admin',email:em,admin:true};
   }else{
     const k=ekey(em),a=await getAcc(k);
-    if(!a){msg.textContent='No account for this email. Ask the admin to create your login.';return}
+    if(!a){msg.textContent='No account found for this email. If you are new, or the data was reset, tap “Create new account” to sign up.';return}
     if(!(await pwOK(a,em,pw))){failed(em);msg.textContent='Wrong password.';return}
     if(a.pw.indexOf('p2$')!==0){a.pw=await PH(em,pw);await setAcc(k,a)}
     U={id:k,name:a.name||a.first||'Student',email:em,admin:false};
@@ -254,7 +254,7 @@ $('updChk').onclick=()=>checkUpdate(true);
 
 async function enter(){
   if(U.admin&&ADMINS.length&&!ADMINS.includes((U.email||'').toLowerCase())){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This email is not an admin.';return}
-  if(!U.admin){const a=await getAcc(U.id);if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account was removed by the admin.';return}}
+  if(!U.admin){const a=await getAcc(U.id);if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account no longer exists. Please tap “Create new account” to sign up again.';return}}
   await loadCustom();
   $('who').textContent=U.name+(U.admin?' (admin)':'');
   $('admBtn').classList.toggle('hide',!U.admin);
@@ -266,14 +266,16 @@ async function enter(){
 
 /* ---------- home ---------- */
 async function home(){
-  show('home');await loadCustom();await loadContent();$('nNotes').textContent=CONTENT.notes.length+' note(s)';const up=CONTENT.classes.filter(c=>classEnd(c)>Date.now()).length;$('nLive').textContent=up?up+' upcoming / live class(es)':'No upcoming classes';
+  show('home');await loadCustom();await loadContent();await loadSchedule();$('nNotes').textContent=CONTENT.notes.length+' note(s)';const up=CONTENT.classes.filter(c=>classEnd(c)>Date.now()).length;$('nLive').textContent=up?up+' upcoming / live class(es)':'No upcoming classes';
   if(!U.admin)ACC=await getAccess(U.id);
   const ok=VIS().filter(m=>ACC.includes(m.id));
   $('mods').innerHTML=(ok.length?'':'<div class="card">⏳ No tests are unlocked for you yet. Please ask the admin to give you access, then press the <b>Tests</b> button again.</div>')+
   VIS().map(m=>{
     if(!ACC.includes(m.id))return '<div class="card" style="opacity:.55"><b>🔒 '+esc(m.name)+'</b><div class="sub" style="margin:4px 0 0">Locked · ask the admin for access</div></div>';
-    const p=ls.get(pk(m.id),{ans:{}}),n=Object.keys(p.ans||{}).length;
-    return '<div class="card"><b>'+esc(m.name)+'</b><div class="sub" style="margin:4px 0 10px">'+qn(m)+' questions · ⏱ '+limitMin(m)+' min · answered '+n+(p.done?' · submitted':'')+'</div><button class="btn" data-m="'+m.id+'">'+(p.done?'View result':n?'Continue':'Start')+'</button></div>';
+    const p=ls.get(pk(m.id),{ans:{}}),n=Object.keys(p.ans||{}).length,ws=winState(m.id),started=!!(p.t0||n);
+    let tag='';if(ws.st==='soon')tag='🕒 Opens '+fmtDT(ws.s)+(ws.e<Infinity?' · closes '+fmtDT(ws.e):'');else if(ws.st==='closed')tag='⛔ Closed on '+fmtDT(ws.e);else if(ws.e<Infinity)tag='🟢 Open · closes '+fmtDT(ws.e);else if(ws.s)tag='🟢 Open now';
+    const can=U.admin||p.done||ws.st==='open'||(ws.st==='closed'&&started);
+    return '<div class="card"'+(can?'':' style="opacity:.75"')+'><b>'+esc(m.name)+'</b><div class="sub" style="margin:4px 0 '+(tag?'4':'10')+'px">'+qn(m)+' questions · ⏱ '+limitMin(m)+' min · answered '+n+(p.done?' · submitted':'')+'</div>'+(tag?'<div class="sub" style="margin:0 0 10px">'+tag+'</div>':'')+(can?'<button class="btn" data-m="'+m.id+'">'+(p.done?'View result':n?'Continue':'Start')+'</button>':'')+'</div>';
   }).join('');
 }
 $('cpBtn').onclick=async()=>{const m=$('cpMsg');m.style.color='var(--bad)';const a=await getAcc(U.id);if(!a){m.textContent='Account not found.';return}
@@ -299,9 +301,23 @@ function loadModule(m){return new Promise((res,rej)=>{if(m.q)return res();
   const s=document.createElement('script');s.src='data/m_'+m.id+'.js?v='+DATAV;
   s.onload=()=>{if(typeof MD!=='undefined'&&MD[m.id]){Object.assign(m,MD[m.id]);res()}else rej()};s.onerror=rej;document.head.appendChild(s)})}
 function fmtT(ms){const s=Math.max(0,Math.ceil(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0')}
+let SCHED={},SCT=0;
+async function loadSchedule(force){
+  if(!force&&SCT&&Date.now()-SCT<20000)return;
+  let v=null;
+  if(DB){try{const d=await DB.doc('settings/schedule').get();v=d.exists?JSON.parse(d.data().v):{}}catch(e){v=ls.get('pq:schedule',{})}}
+  else v=ls.get('pq:schedule',{});
+  SCHED=v||{};SCT=Date.now();
+}
+async function saveSchedule(){ls.set('pq:schedule',SCHED);if(DB){try{await DB.doc('settings/schedule').set({v:JSON.stringify(SCHED)});return true}catch(e){return false}}return true}
+function winState(id){const w=SCHED[id];if(!w||(!w.s&&!w.e))return{st:'open',s:0,e:Infinity};
+  const n=Date.now(),s=w.s?new Date(w.s).getTime():0,e=w.e?new Date(w.e).getTime():Infinity;
+  return{st:n<s?'soon':n>e?'closed':'open',s,e}}
+function dl(){let d=T0+limitMin(M)*60000;if(!U.admin){const w=winState(M.id);if(w.e<Infinity)d=Math.min(d,w.e)}return d}
+const toLocalInput=iso=>{if(!iso)return'';const d=new Date(iso),p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())};
 function tick(){
   if(!M||done||$('play').classList.contains('hide')){clearInterval(TT);return}
-  const left=T0+limitMin(M)*60000-Date.now();
+  const left=dl()-Date.now();
   $('timer').textContent='⏱ '+fmtT(left);$('timer').style.color=left<300000?'var(--bad)':'';
   if(left<=0){clearInterval(TT);$('cbox').classList.add('hide');done=true;persist(true);finish(false).then(()=>{$('shareNote').textContent='⏰ Time is up — your test was submitted automatically.'})}
 }
@@ -309,6 +325,10 @@ function startTimer(){clearInterval(TT);tick();TT=setInterval(tick,1000)}
 async function openMod(id){
   if(!ACC.includes(id)||HIDDEN.includes(id)){home();return}
   M=MODS.find(m=>m.id===id);
+  await loadSchedule();
+  if(!U.admin){const ws=winState(id),pp=ls.get(pk(id),{ans:{}}),started=!!(pp.t0||Object.keys(pp.ans||{}).length);
+    if(!pp.done&&(ws.st==='soon'||(ws.st==='closed'&&!started))){M=null;await home();
+      $('mods').insertAdjacentHTML('afterbegin','<div class="card" style="border-color:var(--bad)">'+(ws.st==='soon'?'🕒 This test opens on '+fmtDT(ws.s)+'.':'⛔ This test is closed.')+'</div>');return}}
   if(!M.q){$('ld').classList.remove('hide');
     try{await loadModule(M)}catch(e){$('ld').classList.add('hide');M=null;await home();$('mods').insertAdjacentHTML('afterbegin','<div class="card" style="border-color:var(--bad)">Could not load this test. Check your internet and try again.</div>');return}
     $('ld').classList.add('hide')}
@@ -316,7 +336,7 @@ async function openMod(id){
   const d=ls.get(pk(id),{ans:{},idx:0,done:false});
   ans=d.ans||{};idx=Math.min(d.idx||0,Q.length-1);done=!!d.done;T0=d.t0||0;filter='all';shown=40;
   if(!done&&!T0)T0=Date.now();
-  let auto=false;if(!done&&Date.now()>T0+limitMin(M)*60000){done=true;auto=true;persist(true)}
+  let auto=false;if(!done&&Date.now()>dl()){done=true;auto=true;persist(true)}
   ls.set('pq:last:'+U.id,id);
   if(done)finish(!auto).then(()=>{if(auto)$('shareNote').textContent='⏰ Time was up — your test was submitted automatically.'});else{$('mtitle').textContent=M.name;buildPal();render();show('play');startTimer()}
   if(DB){try{const s=await DB.doc('prog/'+U.id+'_'+id).get();
@@ -325,11 +345,11 @@ async function openMod(id){
 
 /* ---------- quiz ---------- */
 const img=(q,k)=>k==='E'?E:q.opts[k];
-function box(v,lz,st){
+function box(v,lz,st,mod){const MM=mod||M;
   if(v&&!Array.isArray(v)&&typeof v==='object')return '<div class="tbox"'+(st?' style="'+st+'"':'')+'>'+esc(v.t)+'</div>';
   if(typeof v==='string')return '<div class="imgbox"'+(st?' style="'+st+'"':'')+'><img '+(lz?'loading="lazy" ':'')+'src="'+v+'"></div>';
-  const W=M.W,r=v[3]/W*100;
-  return '<div class="imgbox" style="max-width:480px;'+(st||'')+'"><div style="position:relative;overflow:hidden;height:0;padding-bottom:'+r+'%"><img src="'+(M.sheets||SHEETS)[v[0]]+'" style="position:absolute;left:0;top:0;max-width:none;width:200%;margin-left:-'+(v[1]*100)+'%;margin-top:-'+(v[2]/W*100)+'%"></div></div>';
+  const W=MM.W,r=v[3]/W*100;
+  return '<div class="imgbox" style="max-width:480px;'+(st||'')+'"><div style="position:relative;overflow:hidden;height:0;padding-bottom:'+r+'%"><img src="'+(MM.sheets||SHEETS)[v[0]]+'" style="position:absolute;left:0;top:0;max-width:none;width:200%;margin-left:-'+(v[1]*100)+'%;margin-top:-'+(v[2]/W*100)+'%"></div></div>';
 }
 
 function buildPal(){
@@ -390,11 +410,12 @@ function rev(){
     return '<div class="card"><span class="tag">Q'+q.n+'</span> <span class="tag '+tg[1]+'">'+tg[0]+'</span> <span class="tag ok">Correct: '+q.ans+'</span>'+(a&&a!=='E'?' <span class="tag">Yours: '+a+'</span>':'')+''+box(q.stem,true,'margin:10px 0')+''+o+(q.note?'<div class="note"><b>PDF note:</b> '+esc(q.note)+'</div>':'')+'</div>'}).join('')||'<div class="card sub">Nothing here.</div>';
   $('more').classList.toggle('hide',list.length<=shown);
 }
-$('again').onclick=()=>{ans={};idx=0;done=false;T0=Date.now();persist(true);buildPal();render();show('play');startTimer();scrollTo(0,0)};
-$('back').onclick=()=>{if(Date.now()>T0+limitMin(M)*60000){$('shareNote').textContent='⏰ Time is over for this attempt. Use Retake to try again.';return}done=false;persist(true);render();show('play');startTimer();scrollTo(0,0)};
+$('again').onclick=()=>{if(!U.admin&&winState(M.id).st!=='open'){$('shareNote').textContent='⛔ This test is closed, so it cannot be retaken now.';return}ans={};idx=0;done=false;T0=Date.now();persist(true);buildPal();render();show('play');startTimer();scrollTo(0,0)};
+$('back').onclick=()=>{if(Date.now()>dl()){$('shareNote').textContent='⏰ Time is over for this attempt. Use Retake to try again.';return}done=false;persist(true);render();show('play');startTimer();scrollTo(0,0)};
 $('toHome').onclick=()=>{ls.set('pq:last:'+U.id,null);M=null;home()};
 
 /* ---------- admin ---------- */
+let LOCKOLD=[];
 async function loadAdmin(){
   $('admBody').innerHTML='<div class="sub">Loading…</div>';
   let ac=[],raw={},old={},res={},acs={},pf={};
@@ -424,16 +445,21 @@ async function loadAdmin(){
       if(x.email||x.mobile||x.first||x.last)await setAcc(x.id,{name:src.first||x.name||'',pw:x.pw})}}
   if(priv)for(const id in raw){try{pf[id]=ADMINS.length?await decProfileM(priv,aKey,raw[id]):await decProfile(priv,raw[id])}catch(e){}}
   if(!priv)$('pwMsg').classList.remove('hide'),$('pwMsg').innerHTML='🔒 To see student details, please log out and log in as admin again.';
-  const lockedN=Object.keys(raw).filter(id=>!pf[id]).length;
-  $('recCard').classList.toggle('hide',!(ADMINS.length&&priv&&lockedN));$('recNote').textContent=lockedN?lockedN+' student(s) have locked details.':'';
+  const lockedIds=Object.keys(raw).filter(id=>!pf[id]);
+  LOCKOLD=lockedIds.filter(id=>raw[id]&&raw[id].ek);
+  const nShare=lockedIds.filter(id=>raw[id]&&raw[id].eks).length,nOld=LOCKOLD.length;
+  $('recShareN').textContent=nShare;$('recOldN').textContent=nOld;
+  $('recShare').classList.toggle('hide',!nShare);$('recOld').classList.toggle('hide',!nOld);
+  $('recCard').classList.toggle('hide',!(ADMINS.length&&priv&&(nShare||nOld)));
   const c=(await emailCfg())||{};$('ejS').value=c.s||'';$('ejT').value=c.t||'';$('ejK').value=c.k||'';
-  qbList();await loadContent();cRender();
+  qbList();await loadContent();cRender();await loadSchedule(true);schRender();
   const st=ac.map(x=>({id:x.id,...x,...(pf[x.id]||{})}));
+  $('avStu').innerHTML=st.map(x=>'<option value="'+x.id+'">'+esc(nm(x)||x.name||'Student')+'</option>').join('');$('avTest').innerHTML=VIS().map(m=>'<option value="'+m.id+'">'+esc(m.name)+'</option>').join('');
   const att=m=>st.filter(x=>(res[x.id]||{})[m.id]).length;
   const head='<tr><th>Student details</th>'+VIS().map(m=>'<th title="'+esc(m.name)+'">'+esc(m.short)+'<br><span class="sub">'+att(m)+' attended</span></th>').join('')+'<th></th></tr>';
   const body=st.map(x=>{const a=acs[x.id]||[],r=res[x.id]||{};
     return '<tr><td><b>'+esc(nm(x))+'</b><br><span class="sub">📧 '+esc(x.email||'—')+'<br>📱 '+esc(x.mobile||'—')+'</span></td>'+VIS().map(m=>{const v=r[m.id];
-      return '<td><input type="checkbox" data-s="'+x.id+'" data-m="'+m.id+'"'+(a.includes(m.id)?' checked':'')+'> '+(v?'<b>'+v.s+'/'+v.t+'</b><br><span class="sub">✔'+v.s+' ✘'+(v.w??'–')+' ⏭'+(v.k??'–')+'<br>'+new Date(v.ts).toLocaleDateString()+'</span>':'<span class="sub">—</span>')+'</td>'}).join('')+
+      return '<td><input type="checkbox" data-s="'+x.id+'" data-m="'+m.id+'"'+(a.includes(m.id)?' checked':'')+'> '+(v?'<b>'+v.s+'/'+v.t+'</b><br><span class="sub">✔'+v.s+' ✘'+(v.w??'–')+' ⏭'+(v.k??'–')+'<br>'+new Date(v.ts).toLocaleDateString()+'</span><br><button class="btn ghost" style="padding:4px 8px;font-size:12px;margin-top:4px" data-av="'+x.id+'|'+m.id+'">👁 Answers</button>':'<span class="sub">—</span>')+'</td>'}).join('')+
       '<td><button class="btn ghost" data-all="'+x.id+'">All</button> <button class="btn ghost" data-none="'+x.id+'">None</button> <button class="btn ghost" data-pw="'+x.id+'">Reset password</button> <button class="btn ghost" data-del="'+x.id+'">Reset scores</button> <button class="btn ghost" data-rm="'+x.id+'" style="color:var(--bad)">Remove user</button></td></tr>'}).join('');
   $('admBody').innerHTML=st.length?'<div class="sub" style="margin-bottom:8px">'+st.length+' student(s). Tick a box to give access to a test. Scores appear after the student submits.</div><div class="card" style="overflow:auto"><table>'+head+body+'</table></div>':'<div class="card sub">No students yet. Students create their own accounts from the login page.</div>';
   $('admBody').onchange=async e=>{const c=e.target;if(!c.dataset.s)return;
@@ -444,6 +470,7 @@ async function loadAdmin(){
     else if(b.dataset.pw){const id=b.dataset.pw,a=await getAcc(id),p=pf[id]||{};const em=p.email||(a&&a.email);if(a&&!em){$('pwMsg').classList.remove('hide');$('pwMsg').textContent='Log out and log in as admin again, then retry.';return}if(a){const t=genPw();
       a.pw=await PH(em,t);await setAcc(id,a);
       $('pwMsg').classList.remove('hide');$('pwMsg').innerHTML='New temporary password for <b>'+esc(nm(p)||a.name)+'</b> ('+esc(em)+'): <b style="font-size:18px">'+t+'</b><br>Send it to the student. They can change it after login.';scrollTo(0,0)}}
+    else if(b.dataset.av){const p=b.dataset.av.split('|'),u=st.find(y=>y.id===p[0])||{};openAnswers(p[0],p[1],nm(u)||u.name||'Student')}
     else if(b.dataset.rm){if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}await removeUser(b.dataset.rm);loadAdmin()}
     else if(b.dataset.del){const id=b.dataset.del;ls.set('pq:res:'+id,{});if(DB)try{await DB.doc('results/'+id).delete()}catch(er){}loadAdmin()}};
 }
@@ -456,10 +483,15 @@ $('recGo').onclick=async()=>{
   const raw={};
   if(DB){try{const r=await DB.collection('pf2').get();r.docs.forEach(d=>raw[d.id]=d.data())}catch(e){}}
   else{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.indexOf('pq:pf:')===0)raw[k.slice(6)]=ls.get(k,{})}}
-  let n=0;
-  for(const id in raw){const d=raw[id];if(!d||!d.ek)continue;try{const o=await decProfile(vj,d);await setPf(id,await ENC(o));n++}catch(e){}}
-  m.style.color=n?'var(--ok)':'var(--bad)';m.textContent=n?'✔ Recovered details of '+n+' student(s).':'Nothing could be recovered.';
+  let n=0,found=0;
+  for(const id in raw){const d=raw[id];if(!d||!d.ek)continue;found++;try{const o=await decProfile(vj,d);await setPf(id,await ENC(o));n++}catch(e){}}
+  m.style.color=n?'var(--ok)':'var(--bad)';
+  m.textContent=n?'✔ Recovered details of '+n+' student(s).'+(found>n?' '+(found-n)+' could not be unlocked with this password.':''):found?'This password opens the current key, but it does not match these old records (the old key was replaced later), so they cannot be recovered.':'No old-format records were found.';
   $('recPw').value='';loadAdmin()};
+$('recDel').onclick=async()=>{const b=$('recDel');
+  if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Their scores are removed too. Click again';return}
+  b.dataset.sure='';b.textContent='Remove these students';
+  for(const id of LOCKOLD.slice())await removeUser(id);loadAdmin()};
 $('ejSave').onclick=async()=>{const c={s:$('ejS').value.trim(),t:$('ejT').value.trim(),k:$('ejK').value.trim()};ls.set('pq:emailjs',c);
   if(DB)try{await DB.doc('settings/emailjs').set(c)}catch(e){}$('ejMsg').style.color='var(--ok)';$('ejMsg').textContent='Saved.'};
 $('ejTest').onclick=async()=>{$('ejMsg').style.color='var(--bad)';$('ejMsg').textContent='Sending…';
@@ -556,7 +588,8 @@ function renderNotes(){
 $('nList').onclick=e=>{const b=e.target.closest('button');if(!b)return;const n=CONTENT.notes.find(x=>x.id===b.dataset.n);if(!n)return;
   const u=safeUrl(n.link);
   $('nList').classList.add('hide');$('nSearch').classList.add('hide');$('nRead').classList.remove('hide');
-  $('nRead').innerHTML='<button class="btn ghost" id="nBackList">← All notes</button><h2 style="margin:12px 0 4px">'+esc(n.title)+'</h2>'+(n.subject?'<span class="tag">'+esc(n.subject)+'</span> ':'')+'<span class="sub">'+(n.ts?fmtDT(n.ts):'')+'</span><div style="white-space:pre-wrap;margin-top:12px;line-height:1.6">'+esc(n.body||'')+'</div>'+(u?'<p><a class="btn" href="'+esc(u)+'" target="_blank" rel="noopener">Open attached PDF / link</a></p>':'');
+  $('nRead').innerHTML='<button class="btn ghost" id="nBackList">← All notes</button><h2 style="margin:12px 0 4px">'+esc(n.title)+'</h2>'+(n.subject?'<span class="tag">'+esc(n.subject)+'</span> ':'')+'<span class="sub">'+(n.ts?fmtDT(n.ts):'')+'</span><div style="white-space:pre-wrap;margin-top:12px;line-height:1.6">'+esc(n.body||'')+'</div>'+(u?'<p><a class="btn" href="'+esc(u)+'" target="_blank" rel="noopener">Open attached PDF / link</a></p>':'')+(n.fileId?'<p><button class="btn" id="nFileBtn">📎 Open '+esc(n.fileName||'attached file')+'</button> <span class="sub" id="nFileMsg"></span></p>':'');
+  if(n.fileId)$('nFileBtn').onclick=()=>openNoteFile(n);
   $('nBackList').onclick=renderNotes;scrollTo(0,0)};
 $('nSearch').oninput=renderNotes;
 $('goNotes').onclick=async()=>{show('notes');await loadContent();$('nSearch').value='';renderNotes()};
@@ -576,14 +609,30 @@ $('lvBack').onclick=()=>{clearInterval(LVT);home()};
 /* admin editor for notes & classes */
 const rid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
 function cRender(){
-  $('cDl').classList.toggle('hide',!!DB);
+  $('cDl').classList.toggle('hide',!!DB);$('cFile').classList.toggle('hide',!(DB&&!INCLAUDE));$('cFileHelp').textContent=(DB&&!INCLAUDE)?'Attach a PDF, image or document (maximum 4 MB).':'File upload works when the app is connected to the shared database (Firebase).';
   $('cHelp').textContent=DB?'Saved instantly for all students.':'Press “Download content.json”, then upload that file to your GitHub repo (replace the old one). Students see the change within a minute.';
   $('cList').innerHTML=CONTENT.notes.map(n=>'<div class="row" style="justify-content:space-between;margin-top:8px"><span>📝 '+esc(n.title)+'</span><button class="btn ghost" data-dn="'+esc(n.id)+'">Delete</button></div>').join('')+CONTENT.classes.map(c=>'<div class="row" style="justify-content:space-between;margin-top:8px"><span>🎥 '+esc(c.title)+' <span class="sub">'+fmtDT(c.start)+'</span></span><button class="btn ghost" data-dc="'+esc(c.id)+'">Delete</button></div>').join('');
 }
+const FILEMAX=4*1024*1024;
+const readB64=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=rej;r.readAsDataURL(f)});
 $('cAddNote').onclick=async()=>{const g=i=>$(i).value.trim(),m=$('cMsg');m.style.color='var(--bad)';
-  if(!g('cTitle')||!g('cBody')){m.textContent='Enter a title and the note text.';return}
-  await loadContent();CONTENT.notes.push({id:rid(),title:g('cTitle'),subject:g('cSubject'),body:$('cBody').value,link:g('cLink'),ts:Date.now()});
-  const ok=await saveContent();['cTitle','cSubject','cBody','cLink'].forEach(i=>$(i).value='');m.style.color=ok?'var(--ok)':'var(--bad)';m.textContent=ok?'Note added.':'Could not save.';cRender()};
+  const f=$('cFile').files[0];
+  if(!g('cTitle')||(!g('cBody')&&!g('cLink')&&!f)){m.textContent='Enter a title, and add note text, a link or a file.';return}
+  let fileId='',fileName='',fileType='';
+  if(f){
+    if(!DB||INCLAUDE){m.textContent='File upload needs the shared database (Firebase).';return}
+    if(f.size>FILEMAX){m.textContent='This file is too large. The maximum is 4 MB.';return}
+    m.style.color='var(--mute)';m.textContent='Uploading…';
+    try{const data=await readB64(f);fileId=rid();fileType=f.type||'application/octet-stream';fileName=f.name;await DB.doc('files/'+fileId).set({name:fileName,type:fileType,data})}
+    catch(e){m.style.color='var(--bad)';m.textContent='Upload failed. Check the internet, and that the Firebase rules include "files".';return}
+  }
+  await loadContent();CONTENT.notes.push({id:rid(),title:g('cTitle'),subject:g('cSubject'),body:$('cBody').value,link:g('cLink'),fileId,fileName,fileType,ts:Date.now()});
+  const ok=await saveContent();['cTitle','cSubject','cBody','cLink'].forEach(i=>$(i).value='');$('cFile').value='';m.style.color=ok?'var(--ok)':'var(--bad)';m.textContent=ok?'Note added.':'Could not save.';cRender()};
+async function openNoteFile(n){const m=$('nFileMsg');m.textContent='Loading…';
+  try{const d=await DB.doc('files/'+n.fileId).get();if(!d.exists)throw 0;const x=d.data(),bin=atob(x.data),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+    const url=URL.createObjectURL(new Blob([arr],{type:x.type||'application/octet-stream'})),a=document.createElement('a');
+    m.innerHTML='<a class="btn" href="'+url+'" target="_blank" rel="noopener">Open</a> <a class="btn ghost" href="'+url+'" download="'+esc(x.name||'file')+'">Download</a>';setTimeout(()=>URL.revokeObjectURL(url),600000)}
+  catch(e){m.textContent='Could not open the file. Check your internet.'}}
 $('lAdd').onclick=async()=>{const g=i=>$(i).value.trim(),m=$('cMsg');m.style.color='var(--bad)';
   if(!g('lTitle')||!g('lWhen')){m.textContent='Enter a class title and date/time.';return}
   if(g('lLink')&&!safeUrl(g('lLink'))){m.textContent='The join link must start with https://';return}
@@ -591,10 +640,53 @@ $('lAdd').onclick=async()=>{const g=i=>$(i).value.trim(),m=$('cMsg');m.style.col
   const ok=await saveContent();['lTitle','lSubject','lWhen','lLink','lRec','lDesc'].forEach(i=>$(i).value='');m.style.color=ok?'var(--ok)':'var(--bad)';m.textContent=ok?'Class scheduled.':'Could not save.';cRender()};
 $('cList').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
   if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}
-  if(b.dataset.dn)CONTENT.notes=CONTENT.notes.filter(x=>x.id!==b.dataset.dn);
+  if(b.dataset.dn){const nn=CONTENT.notes.find(x=>x.id===b.dataset.dn);if(nn&&nn.fileId&&DB)try{await DB.doc('files/'+nn.fileId).delete()}catch(er){}CONTENT.notes=CONTENT.notes.filter(x=>x.id!==b.dataset.dn)}
   if(b.dataset.dc)CONTENT.classes=CONTENT.classes.filter(x=>x.id!==b.dataset.dc);
   await saveContent();cRender()};
+function schRender(){
+  const stTxt=id=>{const w=winState(id);return w.st==='soon'?'🕒 not open yet':w.st==='closed'?'⛔ closed':(SCHED[id]&&(SCHED[id].s||SCHED[id].e))?'🟢 open now':'always open'};
+  $('schList').innerHTML=VIS().map(m=>{const w=SCHED[m.id]||{};
+    return '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)"><b>'+esc(m.name)+'</b> <span class="sub">'+stTxt(m.id)+'</span>'+
+    '<div class="row" style="margin-top:6px"><label class="sub" style="flex:1;min-width:150px">Opens<input type="datetime-local" data-s="'+m.id+'" value="'+toLocalInput(w.s)+'"></label><label class="sub" style="flex:1;min-width:150px">Closes<input type="datetime-local" data-e="'+m.id+'" value="'+toLocalInput(w.e)+'"></label></div>'+
+    '<div style="margin-top:6px"><button class="btn ghost" data-ss="'+m.id+'">Save</button> <button class="btn ghost" data-sc="'+m.id+'">Clear (always open)</button></div></div>'}).join('');
+}
+$('schList').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const m=$('schMsg');m.style.color='var(--bad)';
+  if(b.dataset.sc){delete SCHED[b.dataset.sc];const ok=await saveSchedule();m.style.color='var(--ok)';m.textContent=ok?'Cleared. The test is always open.':'Could not save.';schRender();return}
+  if(b.dataset.ss){const id=b.dataset.ss,sv=$('schList').querySelector('[data-s="'+id+'"]').value,ev=$('schList').querySelector('[data-e="'+id+'"]').value;
+    if(!sv&&!ev){m.textContent='Choose an opening and/or closing time, or press Clear.';return}
+    if(sv&&ev&&new Date(ev)<=new Date(sv)){m.textContent='The closing time must be after the opening time.';return}
+    SCHED[id]={s:sv?new Date(sv).toISOString():'',e:ev?new Date(ev).toISOString():''};
+    const ok=await saveSchedule();m.style.color=ok?'var(--ok)':'var(--bad)';m.textContent=ok?'Saved. '+(sv?'Opens '+fmtDT(new Date(sv))+'. ':'')+(ev?'Closes '+fmtDT(new Date(ev))+'.':''):'Could not save.';schRender()}};
 $('cDl').onclick=()=>{const b=new Blob([JSON.stringify(CONTENT,null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='content.json';a.click()};
+/* ---------- admin: see which options a student marked ---------- */
+let AV=null;const imgM=(m,q,k)=>k==='E'?m.E:q.opts[k];
+async function openAnswers(uid,mid,name){
+  const m=MODS.find(x=>x.id===mid);if(!m)return;
+  show('ansv');$('avTitle').textContent=name+' — '+m.name;$('avSum').innerHTML='<div class="sub">Loading…</div>';$('avTabs').innerHTML='';$('avList').innerHTML='';$('avMore').classList.add('hide');
+  try{if(!m.q)await loadModule(m)}catch(e){$('avSum').innerHTML='<div class="sub">Could not load this test. Check the internet.</div>';return}
+  let d=null;
+  if(DB){try{const r=await DB.doc('prog/'+uid+'_'+mid).get();if(r.exists)d=JSON.parse(r.data().v)}catch(e){}}
+  else d=ls.get('pq:p:'+uid+':'+mid,null);
+  if(!d||!d.ans||!Object.keys(d.ans).length){$('avSum').innerHTML='<div class="sub">No saved answers for this test yet.</div>';return}
+  AV={m,ans:d.ans,done:!!d.done,f:'all',shown:40};avRender();
+}
+const avSt=q=>{const a=AV.ans[q.n];if(!a||a==='E')return'skipped';return a===q.ans?'correct':'wrong'};
+function avRender(){
+  const m=AV.m,ans=AV.ans,c={correct:0,wrong:0,skipped:0};m.q.forEach(q=>c[avSt(q)]++);
+  $('avSum').innerHTML='<div class="stats"><div class="stat">Correct<b>'+c.correct+'</b></div><div class="stat">Wrong<b>'+c.wrong+'</b></div><div class="stat">Not answered / Do not know<b>'+c.skipped+'</b></div></div><div class="sub">'+(AV.done?'✔ Submitted':'⏳ In progress (not submitted yet)')+' · '+Object.keys(ans).length+' of '+m.q.length+' marked</div>';
+  $('avTabs').innerHTML=[['all','All ('+m.q.length+')'],['wrong','Wrong ('+c.wrong+')'],['correct','Correct ('+c.correct+')'],['skipped','Not answered ('+c.skipped+')']].map(t=>'<button data-f="'+t[0]+'" class="'+(t[0]===AV.f?'on':'')+'">'+t[1]+'</button>').join('');
+  const list=m.q.filter(q=>AV.f==='all'||avSt(q)===AV.f);
+  $('avList').innerHTML=list.slice(0,AV.shown).map(q=>{const st=avSt(q),a=ans[q.n];
+    const tg={correct:['✔ Correct','ok'],wrong:['✘ Wrong','bad'],skipped:[a==='E'?'Do not know':'Not answered','']}[st];
+    const o=L.map(k=>{const im=imgM(m,q,k);if(!im)return'';let cl='opt static';if(k===q.ans)cl+=' ok';else if(k===a&&k!=='E')cl+=' bad';else if(k===a)cl+=' sel';
+      return'<div class="'+cl+'">'+box(im,true,'',m)+'</div>'}).join('');
+    return'<div class="card"><span class="tag">Q'+q.n+'</span> <span class="tag '+tg[1]+'">'+tg[0]+'</span> <span class="tag">Student marked: '+(a||'—')+'</span> <span class="tag ok">Correct: '+q.ans+'</span>'+box(q.stem,true,'margin:10px 0',m)+o+'</div>'}).join('')||'<div class="card sub">Nothing here.</div>';
+  $('avMore').classList.toggle('hide',list.length<=AV.shown);
+}
+$('avTabs').onclick=e=>{const b=e.target.closest('button');if(b&&AV){AV.f=b.dataset.f;AV.shown=40;avRender()}};
+$('avMore').onclick=()=>{if(AV){AV.shown+=60;avRender()}};
+$('avBack').onclick=()=>{AV=null;show('admin')};
+$('avGo').onclick=()=>{const u=$('avStu').value,t=$('avTest').value;if(!u||!t)return;openAnswers(u,t,$('avStu').selectedOptions[0].textContent)};
 $('admBack').onclick=()=>home();
 init();
 
