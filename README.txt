@@ -1,4 +1,4 @@
-Revision Quiz app  (version 2026.11.21)
+Vettri Namadhey app  (version 2026.11.22)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -39,3 +39,7 @@ Admin page > "Check a student's answers" (choose student + test), or the "👁 A
 Shows every question with the student's marked option, the correct option, Correct / Wrong / Not answered, filters, and
 whether the test is submitted or still in progress. Works for all built-in tests and for quizzes you created.
 Needs the Firebase database (answers are saved there a few seconds after each click). No new Firebase rules are needed.
+
+NEW IN 2026.11.22: the app is now called "Vettri Namadhey" with the new peacock-and-rooster logo. Icons: logo-192.png, logo-512.png, logo-maskable-512.png, apple-touch-icon.png.
+If phones still show the old icon/name, remove the app from the home screen and add it again (phones cache the icon).
+The old icon-192.png / icon-512.png files are no longer used; you may delete them from GitHub.
