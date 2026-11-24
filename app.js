@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.21";
+const APP_VERSION="2026.11.22";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -153,7 +153,7 @@ async function sendEmail(to,name,otp){
   const c=await emailCfg();if(!c||!c.s||!c.t||!c.k)return 'unconfigured';
   if(INCLAUDE)return 'blocked';
   try{const r=await fetch('https://api.emailjs.com/api/v1.0/email/send',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({service_id:c.s,template_id:c.t,user_id:c.k,template_params:{email:to,to_email:to,to_name:name,passcode:otp,otp:otp,time:new Date(Date.now()+OTP_MIN*60000).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}),message:'Your Revision Quiz OTP is '+otp+'. It is valid for '+OTP_MIN+' minutes.'}})});
+    body:JSON.stringify({service_id:c.s,template_id:c.t,user_id:c.k,template_params:{email:to,to_email:to,to_name:name,passcode:otp,otp:otp,time:new Date(Date.now()+OTP_MIN*60000).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}),message:'Your Vettri Namadhey OTP is '+otp+'. It is valid for '+OTP_MIN+' minutes.'}})});
     if(r.ok)return 'sent';LASTERR=(r.status+' '+(await r.text())).slice(0,160);return 'failed'}catch(e){LASTERR=String(e).slice(0,120);return 'failed'}
 }
 function setMode(m){LM=m;
