@@ -1,4 +1,4 @@
-Vettri Namadhey app  (version 2026.11.22)
+Vettri Namadhey app  (version 2026.11.23)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -43,3 +43,9 @@ Needs the Firebase database (answers are saved there a few seconds after each cl
 NEW IN 2026.11.22: the app is now called "Vettri Namadhey" with the new peacock-and-rooster logo. Icons: logo-192.png, logo-512.png, logo-maskable-512.png, apple-touch-icon.png.
 If phones still show the old icon/name, remove the app from the home screen and add it again (phones cache the icon).
 The old icon-192.png / icon-512.png files are no longer used; you may delete them from GitHub.
+
+NEW IN 2026.11.23 - ADMIN APPROVES NEW STUDENTS
+A student who signs up is told "Please wait for the admin to approve it" and cannot login yet.
+The admin sees a "🔔 Admin (N new)" button and, inside the Admin page, a card "New students waiting for approval"
+with Approve / Reject / Approve all. After approval the student can login (then give them test access as usual).
+Students who signed up before this update are treated as already approved.

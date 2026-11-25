@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.22";
+const APP_VERSION="2026.11.23";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -164,7 +164,7 @@ function setMode(m){LM=m;
   $('lpin').placeholder=o?'New password (6+ characters)':'Password (6+ characters)';
   $('lswitch').classList.toggle('hide',!(f||o||rg));$('lforgot').classList.toggle('hide',m!=='student');$('lreg').classList.toggle('hide',m!=='student');
   $('lbtn').textContent=f?'Send OTP to my email':o?'Reset password':rg?'Create account':'Login';
-  $('lhelp').textContent=rg?'Create your account. Your name, mobile number and email are visible only to the admin.':ad?'Admin login. First time: the email and password you enter create the admin account.':f?'Enter your registered email. We will email you a 6-digit OTP.':o?'Enter the OTP from your email and choose a new password.':'Student login. New here? Create an account.';
+  $('lhelp').textContent=rg?'Create your account. The admin must approve it before you can login. Your name, mobile number and email are visible only to the admin.':ad?'Admin login. First time: the email and password you enter create the admin account.':f?'Enter your registered email. We will email you a 6-digit OTP.':o?'Enter the OTP from your email and choose a new password.':'Student login. New here? Create an account.';
   $('lmsg').style.color='var(--bad)';$('lmsg').textContent=''}
 $('tStu').onclick=()=>setMode('student');$('tAdm').onclick=()=>setMode('admin');
 $('lswitch').onclick=()=>setMode('student');$('lforgot').onclick=()=>setMode('forgot');$('lreg').onclick=()=>setMode('register');
@@ -181,8 +181,8 @@ $('lbtn').onclick=async()=>{
     if(pw.length<6){msg.textContent='Password must be at least 6 characters.';return}
     if(!(await canEnc())){msg.textContent=DB?'Registration is not open yet. Please ask the admin to log in once to set it up.':'Sign-up needs the shared database, which is not connected yet. Please tell your admin.';return}
     const k=ekey(em);if(await getAcc(k)){msg.textContent='This email is already registered. Please login.';return}
-    await setAcc(k,{name:f,pw:await PH(em,pw)});await setPf(k,await ENC({first:f,last:l,mobile:mb,email:em}));
-    U={id:k,name:f,email:em,admin:false};ls.set('pq:session',U);['lfirst','llast','lmobile','lpin'].forEach(i=>$(i).value='');msg.textContent='';enter();return}
+    await setAcc(k,{name:f,pw:await PH(em,pw),status:'pending'});await setPf(k,await ENC({first:f,last:l,mobile:mb,email:em}));
+    ['lfirst','llast','lmobile','lpin'].forEach(i=>$(i).value='');setMode('student');$('lemail').value=em;$('lmsg').style.color='var(--ok)';$('lmsg').textContent='✔ Account created. Please wait for the admin to approve it, then login.';return}
   if(LM==='forgot'){
     const k=ekey(em),a=await getAcc(k);
     if(!a){msg.textContent='No account found for this email. Tap “Back to login”, then “Create new account” to sign up.';return}
@@ -226,6 +226,7 @@ $('lbtn').onclick=async()=>{
     if(!a){msg.textContent='No account found for this email. If you are new, or the data was reset, tap “Create new account” to sign up.';return}
     if(!(await pwOK(a,em,pw))){failed(em);msg.textContent='Wrong password.';return}
     if(a.pw.indexOf('p2$')!==0){a.pw=await PH(em,pw);await setAcc(k,a)}
+    if(a.status==='pending'){msg.textContent='Your account is waiting for admin approval. Please try again later.';return}
     U={id:k,name:a.name||a.first||'Student',email:em,admin:false};
   }
   localStorage.removeItem('pq:fail:'+em);ls.set('pq:session',U);$('lpin').value='';msg.textContent='';enter();
@@ -254,10 +255,10 @@ $('updChk').onclick=()=>checkUpdate(true);
 
 async function enter(){
   if(U.admin&&ADMINS.length&&!ADMINS.includes((U.email||'').toLowerCase())){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This email is not an admin.';return}
-  if(!U.admin){const a=await getAcc(U.id);if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account no longer exists. Please tap “Create new account” to sign up again.';return}}
+  if(!U.admin){const a=await getAcc(U.id);if(a&&a.status==='pending'){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='Your account is waiting for admin approval.';return}if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account no longer exists. Please tap “Create new account” to sign up again.';return}}
   await loadCustom();
   $('who').textContent=U.name+(U.admin?' (admin)':'');
-  $('admBtn').classList.toggle('hide',!U.admin);
+  $('admBtn').classList.toggle('hide',!U.admin);updPending();
   $('bar2').classList.remove('hide');
   ACC=U.admin?MODS.map(m=>m.id):await getAccess(U.id);
   const last=ls.get('pq:last:'+U.id,null);
@@ -266,7 +267,7 @@ async function enter(){
 
 /* ---------- home ---------- */
 async function home(){
-  show('home');await loadCustom();await loadContent();await loadSchedule();$('nNotes').textContent=CONTENT.notes.length+' note(s)';const up=CONTENT.classes.filter(c=>classEnd(c)>Date.now()).length;$('nLive').textContent=up?up+' upcoming / live class(es)':'No upcoming classes';
+  show('home');updPending();await loadCustom();await loadContent();await loadSchedule();$('nNotes').textContent=CONTENT.notes.length+' note(s)';const up=CONTENT.classes.filter(c=>classEnd(c)>Date.now()).length;$('nLive').textContent=up?up+' upcoming / live class(es)':'No upcoming classes';
   if(!U.admin)ACC=await getAccess(U.id);
   const ok=VIS().filter(m=>ACC.includes(m.id));
   $('mods').innerHTML=(ok.length?'':'<div class="card">⏳ No tests are unlocked for you yet. Please ask the admin to give you access, then press the <b>Tests</b> button again.</div>')+
@@ -453,7 +454,10 @@ async function loadAdmin(){
   $('recCard').classList.toggle('hide',!(ADMINS.length&&priv&&(nShare||nOld)));
   const c=(await emailCfg())||{};$('ejS').value=c.s||'';$('ejT').value=c.t||'';$('ejK').value=c.k||'';
   qbList();await loadContent();cRender();await loadSchedule(true);schRender();
-  const st=ac.map(x=>({id:x.id,...x,...(pf[x.id]||{})}));
+  const all=ac.map(x=>({id:x.id,...x,...(pf[x.id]||{})})),pend=all.filter(x=>x.status==='pending'),st=all.filter(x=>x.status!=='pending');
+  PEND=pend.map(x=>x.id);$('apprCard').classList.toggle('hide',!pend.length);$('apprAll').classList.toggle('hide',pend.length<2);
+  $('apprList').innerHTML=pend.map(x=>'<div class="row" style="justify-content:space-between;margin-top:10px;gap:8px"><span><b>'+esc(nm(x)||x.name||'Student')+'</b><br><span class="sub">📧 '+esc(x.email||'—')+'<br>📱 '+esc(x.mobile||'—')+'</span></span><span><button class="btn" data-ap="'+x.id+'">Approve</button> <button class="btn ghost" data-rj="'+x.id+'" style="color:var(--bad)">Reject</button></span></div>').join('');
+  updPending();
   $('avStu').innerHTML=st.map(x=>'<option value="'+x.id+'">'+esc(nm(x)||x.name||'Student')+'</option>').join('');$('avTest').innerHTML=VIS().map(m=>'<option value="'+m.id+'">'+esc(m.name)+'</option>').join('');
   const att=m=>st.filter(x=>(res[x.id]||{})[m.id]).length;
   const head='<tr><th>Student details</th>'+VIS().map(m=>'<th title="'+esc(m.name)+'">'+esc(m.short)+'<br><span class="sub">'+att(m)+' attended</span></th>').join('')+'<th></th></tr>';
@@ -687,6 +691,20 @@ $('avTabs').onclick=e=>{const b=e.target.closest('button');if(b&&AV){AV.f=b.data
 $('avMore').onclick=()=>{if(AV){AV.shown+=60;avRender()}};
 $('avBack').onclick=()=>{AV=null;show('admin')};
 $('avGo').onclick=()=>{const u=$('avStu').value,t=$('avTest').value;if(!u||!t)return;openAnswers(u,t,$('avStu').selectedOptions[0].textContent)};
+/* ---------- admin approves new students ---------- */
+let PEND=[];
+async function updPending(){
+  if(!U||!U.admin)return;let n=0;
+  try{
+    if(DB){const r=await DB.collection('accounts').get();n=r.docs.filter(d=>d.id!=='admin'&&d.id.indexOf('a_')!==0&&d.data().status==='pending').length}
+    else{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.indexOf('pq:acc:s_')===0&&ls.get(k,{}).status==='pending')n++}}
+  }catch(e){}
+  $('admBtn').textContent=n?'🔔 Admin ('+n+' new)':'Admin';
+}
+$('apprList').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.ap){const a=await getAcc(b.dataset.ap);if(a){a.status='approved';await setAcc(b.dataset.ap,a)}loadAdmin()}
+  else if(b.dataset.rj){if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}await removeUser(b.dataset.rj);loadAdmin()}};
+$('apprAll').onclick=async()=>{for(const id of PEND.slice()){const a=await getAcc(id);if(a){a.status='approved';await setAcc(id,a)}}loadAdmin()};
 $('admBack').onclick=()=>home();
 init();
 
