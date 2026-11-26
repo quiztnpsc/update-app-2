@@ -1,4 +1,4 @@
-Vettri Namadhey app  (version 2026.11.23)
+Vettri Namadhey app  (version 2026.11.25)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -49,3 +49,15 @@ A student who signs up is told "Please wait for the admin to approve it" and can
 The admin sees a "🔔 Admin (N new)" button and, inside the Admin page, a card "New students waiting for approval"
 with Approve / Reject / Approve all. After approval the student can login (then give them test access as usual).
 Students who signed up before this update are treated as already approved.
+
+NEW IN 2026.11.24 - EXAM RULES
+- Once a student picks an option it is FINAL (cannot be changed, no clear button), even after refresh.
+- The Submit button stays disabled until EVERY question has an answer ("Do not know" counts as attended). Time-up still submits automatically.
+- No retake without the admin: in Admin page > student's score cell, press "Allow retake". The student then sees a Retake button once; it is used up after one retake.
+
+NEW IN 2026.11.25 - TESTS IN FOLDERS
+- Student home screen shows folders (tap to open) with their tests inside. General Tamil units I-VII are grouped automatically.
+- Admin page > Manage tests: type a folder name next to any test (or empty to remove it from a folder).
+- Admin page > Create / upload a quiz: pick several quiz files at once (each file becomes a quiz named after the file) or press
+  "Upload a whole folder" (computer only; the folder name becomes the folder). Optionally type a Folder name first.
+No new Firebase rules are needed.

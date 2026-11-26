@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.23";
+const APP_VERSION="2026.11.25";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -141,6 +141,11 @@ async function getAccess(k){
   if(DB){try{const d=await DB.doc('access/'+k).get();if(d.exists)return JSON.parse(d.data().m)}catch(e){}}
   return ls.get('pq:access:'+k,[]);
 }
+async function getRetake(k){
+  if(DB){try{const d=await DB.doc('settings/retake_'+k).get();return d.exists?JSON.parse(d.data().v):[]}catch(e){return []}}
+  return ls.get('pq:retake:'+k,[]);
+}
+async function setRetake(k,a){ls.set('pq:retake:'+k,a);if(DB){try{await DB.doc('settings/retake_'+k).set({v:JSON.stringify(a)})}catch(e){}}}
 async function setAccess(k,a){ls.set('pq:access:'+k,a);if(DB){try{await DB.doc('access/'+k).set({m:JSON.stringify(a)})}catch(e){}}}
 const EJ_DEFAULT={s:'service_ixah061',t:'template_qu8z0gi',k:'6Od17mJlk1tGq_9Hb'};
 const OTP_MIN=15;
@@ -271,13 +276,13 @@ async function home(){
   if(!U.admin)ACC=await getAccess(U.id);
   const ok=VIS().filter(m=>ACC.includes(m.id));
   $('mods').innerHTML=(ok.length?'':'<div class="card">⏳ No tests are unlocked for you yet. Please ask the admin to give you access, then press the <b>Tests</b> button again.</div>')+
-  VIS().map(m=>{
+  groupFolders(VIS(),m=>{
     if(!ACC.includes(m.id))return '<div class="card" style="opacity:.55"><b>🔒 '+esc(m.name)+'</b><div class="sub" style="margin:4px 0 0">Locked · ask the admin for access</div></div>';
     const p=ls.get(pk(m.id),{ans:{}}),n=Object.keys(p.ans||{}).length,ws=winState(m.id),started=!!(p.t0||n);
     let tag='';if(ws.st==='soon')tag='🕒 Opens '+fmtDT(ws.s)+(ws.e<Infinity?' · closes '+fmtDT(ws.e):'');else if(ws.st==='closed')tag='⛔ Closed on '+fmtDT(ws.e);else if(ws.e<Infinity)tag='🟢 Open · closes '+fmtDT(ws.e);else if(ws.s)tag='🟢 Open now';
     const can=U.admin||p.done||ws.st==='open'||(ws.st==='closed'&&started);
     return '<div class="card"'+(can?'':' style="opacity:.75"')+'><b>'+esc(m.name)+'</b><div class="sub" style="margin:4px 0 '+(tag?'4':'10')+'px">'+qn(m)+' questions · ⏱ '+limitMin(m)+' min · answered '+n+(p.done?' · submitted':'')+'</div>'+(tag?'<div class="sub" style="margin:0 0 10px">'+tag+'</div>':'')+(can?'<button class="btn" data-m="'+m.id+'">'+(p.done?'View result':n?'Continue':'Start')+'</button>':'')+'</div>';
-  }).join('');
+  });
 }
 $('cpBtn').onclick=async()=>{const m=$('cpMsg');m.style.color='var(--bad)';const a=await getAcc(U.id);if(!a){m.textContent='Account not found.';return}
   const o=$('cpOld').value,n=$('cpNew').value;if(n.length<6){m.textContent='New password needs at least 6 characters.';return}
@@ -365,17 +370,20 @@ function render(){
   $('qsec').textContent=q.sec||M.name;
   $('stembox').innerHTML=box(q.stem,false);
   $('opts').innerHTML='';
-  L.forEach(k=>{if(!img(q,k))return;const b=document.createElement('button');b.className='opt'+(ans[q.n]===k?' sel':'');
+  const locked=!!ans[q.n];
+  L.forEach(k=>{if(!img(q,k))return;const b=document.createElement('button');b.className='opt'+(ans[q.n]===k?' sel':'')+(locked&&ans[q.n]!==k?' dim':'');
     b.innerHTML=box(img(q,k),false);
-    b.onclick=()=>{ans[q.n]=k;persist();render()};$('opts').appendChild(b)});
+    if(locked)b.disabled=true;else b.onclick=()=>{if(ans[q.n])return;ans[q.n]=k;persist();render()};$('opts').appendChild(b)});
+  $('lockNote').textContent=locked?'🔒 Your answer is final and cannot be changed.':'Choose one option. Once chosen, it cannot be changed.';
+  {const left=Q.length-Object.keys(ans).length;$('submit').disabled=left>0;$('submit').textContent=left?'Answer all questions to submit ('+left+' left)':'Submit & reveal answers'}
   $('prev').disabled=idx===0;$('next').disabled=idx===Q.length-1;
   [...$('pal').children].forEach((b,i)=>{b.className=(ans[Q[i].n]?'a':'')+(i===idx?' cur':'')});
   persist();
 }
 $('prev').onclick=()=>{if(idx>0){idx--;render();scrollTo(0,0)}};
 $('next').onclick=()=>{if(idx<Q.length-1){idx++;render();scrollTo(0,0)}};
-$('clear').onclick=()=>{delete ans[Q[idx].n];render()};
-$('submit').onclick=()=>{const left=Q.length-Object.keys(ans).length;
+$('clear').onclick=()=>{};
+$('submit').onclick=()=>{const left=Q.length-Object.keys(ans).length;if(left>0)return;
   $('cmsg').textContent=left?'You have '+left+' unanswered question(s). Submit anyway?':'Submit and reveal answers?';
   $('cbox').classList.remove('hide');$('cbox').scrollIntoView({block:'center'})};
 $('cno').onclick=()=>$('cbox').classList.add('hide');
@@ -385,6 +393,7 @@ $('cyes').onclick=()=>{$('cbox').classList.add('hide');done=true;persist(true);f
 const status=q=>{const a=ans[q.n];if(!a)return'skipped';if(a===q.ans)return'correct';if(a==='E')return'skipped';return'wrong'};
 async function finish(restored){
   show('result');
+  {const rt=U.admin?[M.id]:await getRetake(U.id),can=rt.includes(M.id);$('again').classList.toggle('hide',!can);$('rtNote').textContent=can?'✅ Your admin has allowed you to retake this test.':'🔒 To attempt this test again, ask your admin for permission.'}
   const c={correct:0,wrong:0,skipped:0};Q.forEach(q=>c[status(q)]++);
   $('rtitle').textContent=M.name;
   $('big').textContent=c.correct+' / '+Q.length;
@@ -411,8 +420,13 @@ function rev(){
     return '<div class="card"><span class="tag">Q'+q.n+'</span> <span class="tag '+tg[1]+'">'+tg[0]+'</span> <span class="tag ok">Correct: '+q.ans+'</span>'+(a&&a!=='E'?' <span class="tag">Yours: '+a+'</span>':'')+''+box(q.stem,true,'margin:10px 0')+''+o+(q.note?'<div class="note"><b>PDF note:</b> '+esc(q.note)+'</div>':'')+'</div>'}).join('')||'<div class="card sub">Nothing here.</div>';
   $('more').classList.toggle('hide',list.length<=shown);
 }
-$('again').onclick=()=>{if(!U.admin&&winState(M.id).st!=='open'){$('shareNote').textContent='⛔ This test is closed, so it cannot be retaken now.';return}ans={};idx=0;done=false;T0=Date.now();persist(true);buildPal();render();show('play');startTimer();scrollTo(0,0)};
-$('back').onclick=()=>{if(Date.now()>dl()){$('shareNote').textContent='⏰ Time is over for this attempt. Use Retake to try again.';return}done=false;persist(true);render();show('play');startTimer();scrollTo(0,0)};
+$('again').onclick=async()=>{
+  if(!U.admin){const rt=await getRetake(U.id);
+    if(!rt.includes(M.id)){$('rtNote').textContent='🔒 You need your admin\'s permission to retake this test.';return}
+    if(winState(M.id).st!=='open'){$('shareNote').textContent='⛔ This test is closed, so it cannot be retaken now.';return}
+    await setRetake(U.id,rt.filter(x=>x!==M.id))}
+  ans={};idx=0;done=false;T0=Date.now();persist(true);buildPal();render();show('play');startTimer();scrollTo(0,0)};
+$('back').onclick=()=>{};
 $('toHome').onclick=()=>{ls.set('pq:last:'+U.id,null);M=null;home()};
 
 /* ---------- admin ---------- */
@@ -459,11 +473,14 @@ async function loadAdmin(){
   $('apprList').innerHTML=pend.map(x=>'<div class="row" style="justify-content:space-between;margin-top:10px;gap:8px"><span><b>'+esc(nm(x)||x.name||'Student')+'</b><br><span class="sub">📧 '+esc(x.email||'—')+'<br>📱 '+esc(x.mobile||'—')+'</span></span><span><button class="btn" data-ap="'+x.id+'">Approve</button> <button class="btn ghost" data-rj="'+x.id+'" style="color:var(--bad)">Reject</button></span></div>').join('');
   updPending();
   $('avStu').innerHTML=st.map(x=>'<option value="'+x.id+'">'+esc(nm(x)||x.name||'Student')+'</option>').join('');$('avTest').innerHTML=VIS().map(m=>'<option value="'+m.id+'">'+esc(m.name)+'</option>').join('');
+  let rtm={};
+  try{if(DB){const r=await DB.collection('settings').get();r.docs.forEach(d=>{if(d.id.indexOf('retake_')===0){try{rtm[d.id.slice(7)]=JSON.parse(d.data().v)}catch(e){}}})}
+    else{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.indexOf('pq:retake:')===0)rtm[k.slice(10)]=ls.get(k,[])}}}catch(e){}
   const att=m=>st.filter(x=>(res[x.id]||{})[m.id]).length;
   const head='<tr><th>Student details</th>'+VIS().map(m=>'<th title="'+esc(m.name)+'">'+esc(m.short)+'<br><span class="sub">'+att(m)+' attended</span></th>').join('')+'<th></th></tr>';
   const body=st.map(x=>{const a=acs[x.id]||[],r=res[x.id]||{};
     return '<tr><td><b>'+esc(nm(x))+'</b><br><span class="sub">📧 '+esc(x.email||'—')+'<br>📱 '+esc(x.mobile||'—')+'</span></td>'+VIS().map(m=>{const v=r[m.id];
-      return '<td><input type="checkbox" data-s="'+x.id+'" data-m="'+m.id+'"'+(a.includes(m.id)?' checked':'')+'> '+(v?'<b>'+v.s+'/'+v.t+'</b><br><span class="sub">✔'+v.s+' ✘'+(v.w??'–')+' ⏭'+(v.k??'–')+'<br>'+new Date(v.ts).toLocaleDateString()+'</span><br><button class="btn ghost" style="padding:4px 8px;font-size:12px;margin-top:4px" data-av="'+x.id+'|'+m.id+'">👁 Answers</button>':'<span class="sub">—</span>')+'</td>'}).join('')+
+      return '<td><input type="checkbox" data-s="'+x.id+'" data-m="'+m.id+'"'+(a.includes(m.id)?' checked':'')+'> '+(v?'<b>'+v.s+'/'+v.t+'</b><br><span class="sub">✔'+v.s+' ✘'+(v.w??'–')+' ⏭'+(v.k??'–')+'<br>'+new Date(v.ts).toLocaleDateString()+'</span><br><button class="btn ghost" style="padding:4px 8px;font-size:12px;margin-top:4px" data-av="'+x.id+'|'+m.id+'">👁 Answers</button> <button class="btn ghost" style="padding:4px 8px;font-size:12px;margin-top:4px" data-rt="'+x.id+'|'+m.id+'">'+(((rtm[x.id]||[]).includes(m.id))?'✅ Retake allowed (cancel)':'↻ Allow retake')+'</button>':'<span class="sub">—</span>')+'</td>'}).join('')+
       '<td><button class="btn ghost" data-all="'+x.id+'">All</button> <button class="btn ghost" data-none="'+x.id+'">None</button> <button class="btn ghost" data-pw="'+x.id+'">Reset password</button> <button class="btn ghost" data-del="'+x.id+'">Reset scores</button> <button class="btn ghost" data-rm="'+x.id+'" style="color:var(--bad)">Remove user</button></td></tr>'}).join('');
   $('admBody').innerHTML=st.length?'<div class="sub" style="margin-bottom:8px">'+st.length+' student(s). Tick a box to give access to a test. Scores appear after the student submits.</div><div class="card" style="overflow:auto"><table>'+head+body+'</table></div>':'<div class="card sub">No students yet. Students create their own accounts from the login page.</div>';
   $('admBody').onchange=async e=>{const c=e.target;if(!c.dataset.s)return;
@@ -474,6 +491,7 @@ async function loadAdmin(){
     else if(b.dataset.pw){const id=b.dataset.pw,a=await getAcc(id),p=pf[id]||{};const em=p.email||(a&&a.email);if(a&&!em){$('pwMsg').classList.remove('hide');$('pwMsg').textContent='Log out and log in as admin again, then retry.';return}if(a){const t=genPw();
       a.pw=await PH(em,t);await setAcc(id,a);
       $('pwMsg').classList.remove('hide');$('pwMsg').innerHTML='New temporary password for <b>'+esc(nm(p)||a.name)+'</b> ('+esc(em)+'): <b style="font-size:18px">'+t+'</b><br>Send it to the student. They can change it after login.';scrollTo(0,0)}}
+    else if(b.dataset.rt){const p=b.dataset.rt.split('|');let a=await getRetake(p[0]);a=a.includes(p[1])?a.filter(x=>x!==p[1]):[...a,p[1]];await setRetake(p[0],a);loadAdmin()}
     else if(b.dataset.av){const p=b.dataset.av.split('|'),u=st.find(y=>y.id===p[0])||{};openAnswers(p[0],p[1],nm(u)||u.name||'Student')}
     else if(b.dataset.rm){if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}await removeUser(b.dataset.rm);loadAdmin()}
     else if(b.dataset.del){const id=b.dataset.del;ls.set('pq:res:'+id,{});if(DB)try{await DB.doc('results/'+id).delete()}catch(er){}loadAdmin()}};
@@ -505,14 +523,27 @@ $('ejTest').onclick=async()=>{$('ejMsg').style.color='var(--bad)';$('ejMsg').tex
 $('admBtn').onclick=()=>{show('admin');loadAdmin();qbShow('')};
 async function removeUser(id){
   const mids=MODS.map(m=>m.id);
-  ['pq:acc:'+id,'pq:prof:'+id,'pq:pf:'+id,'pq:access:'+id,'pq:res:'+id].forEach(k=>localStorage.removeItem(k));mids.forEach(m=>localStorage.removeItem('pq:p:'+id+':'+m));
-  if(DB)for(const p of ['accounts/'+id,'profiles/'+id,'pf2/'+id,'access/'+id,'results/'+id,'otps/'+id,...mids.map(m=>'prog/'+id+'_'+m)]){try{await DB.doc(p).delete()}catch(e){}}
+  ['pq:retake:'+id,'pq:acc:'+id,'pq:prof:'+id,'pq:pf:'+id,'pq:access:'+id,'pq:res:'+id].forEach(k=>localStorage.removeItem(k));mids.forEach(m=>localStorage.removeItem('pq:p:'+id+':'+m));
+  if(DB)for(const p of ['accounts/'+id,'profiles/'+id,'pf2/'+id,'access/'+id,'settings/retake_'+id,'results/'+id,'otps/'+id,...mids.map(m=>'prog/'+id+'_'+m)]){try{await DB.doc(p).delete()}catch(e){}}
 }
 /* ---------- custom quizzes ---------- */
+let FOLDERS={};const OPENF=new Set();
+const defFolder=id=>/^g[1-7]$/.test(id)?'General Tamil':'';
+const folderOf=m=>((m.id in FOLDERS)?FOLDERS[m.id]:defFolder(m.id))||'';
+async function saveFolders(){ls.set('pq:folders',FOLDERS);if(DB){try{await DB.doc('settings/folders').set({v:JSON.stringify(FOLDERS)})}catch(e){}}}
+function groupFolders(list,fn){
+  const f={},loose=[];
+  list.forEach(m=>{const n=folderOf(m);if(n)(f[n]=f[n]||[]).push(m);else loose.push(m)});
+  return Object.keys(f).sort().map(n=>{const ms=f[n],unl=ms.filter(m=>U.admin||ACC.includes(m.id)).length;
+    return '<details class="fold" data-f="'+esc(n)+'"'+(OPENF.has(n)?' open':'')+'><summary>📁 '+esc(n)+' <span class="sub">· '+ms.length+' test'+(ms.length>1?'s':'')+(unl<ms.length?' · '+unl+' unlocked':'')+'</span></summary>'+ms.map(fn).join('')+'</details>'}).join('')+loose.map(fn).join('');
+}
+$('mods').addEventListener('toggle',e=>{const d=e.target;if(d&&d.dataset&&d.dataset.f!==undefined){if(d.open)OPENF.add(d.dataset.f);else OPENF.delete(d.dataset.f)}},true);
 async function loadCustom(){
   let list=[];
   HIDDEN=ls.get('pq:hidden',[]);
   if(DB){try{const h=await DB.doc('settings/hidden').get();HIDDEN=h.exists?JSON.parse(h.data().v):[]}catch(e){}}
+  FOLDERS=ls.get('pq:folders',{});
+  if(DB){try{const f=await DB.doc('settings/folders').get();FOLDERS=f.exists?JSON.parse(f.data().v):{}}catch(e){}}
   if(DB){try{const r=await DB.collection('quizzes').get();list=r.docs.map(d=>({id:d.id,name:d.data().name,q:JSON.parse(d.data().q)}))}catch(e){}}
   else list=ls.get('pq:quizzes',[]);
   for(let i=MODS.length-1;i>=0;i--)if(MODS[i].custom)MODS.splice(i,1);
@@ -537,18 +568,40 @@ function toQs(text){
     if(r[0]&&o[0]&&o[1]&&a&&o['ABCD'.indexOf(a)])out.push({q:r[0],a:o[0],b:o[1],c:o[2]||'',d:o[3]||'',ans:a})});
   return out}
 function qbShow(m){$('qbList').textContent='Questions in this quiz so far: '+QB.length;$('qbMsg').textContent=m||''}
-$('qbFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('qbText').value=String(r.result).replace(/^\uFEFF/,'');qbShow('File loaded. Press "Add these questions".')};r.readAsText(f,'utf-8')};
+$('qbFile').onchange=e=>{const fs=[...e.target.files];if(!fs.length)return;if(fs.length>1){e.target.value='';importFiles(fs);return}const f=fs[0],r=new FileReader();r.onload=()=>{$('qbText').value=String(r.result).replace(/^\uFEFF/,'');if(!$('qbName').value.trim())$('qbName').value=f.name.replace(/\.[^.]+$/,'').replace(/_+/g,' ').trim();qbShow('File loaded. Press "Add these questions", then "Save quiz".')};r.readAsText(f,'utf-8')};
 $('qbParse').onclick=()=>{try{const a=toQs($('qbText').value);QB=QB.concat(a);$('qbText').value='';qbShow(a.length+' question(s) added.')}catch(e){qbShow('Could not read that text. Check the format.')}};
 $('qbOne').onclick=()=>{const g=id=>$(id).value.trim(),ans=$('mcor').value,o=[g('mA'),g('mB'),g('mC'),g('mD')];
   if(!g('mq')||!o[0]||!o[1]||!o['ABCD'.indexOf(ans)]){qbShow('Enter the question, at least options A and B, and a correct option that is filled in.');return}
   QB.push({q:g('mq'),a:o[0],b:o[1],c:o[2],d:o[3],ans});['mq','mA','mB','mC','mD'].forEach(i=>$(i).value='');qbShow('Question added.')};
 $('qbClear').onclick=()=>{QB=[];qbShow('Cleared.')};
+async function saveQuiz(name,arr,folder){
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  if(DB)await DB.doc('quizzes/'+id).set({name,q:JSON.stringify(arr),ts:Date.now()});
+  else{const l=ls.get('pq:quizzes',[]);l.push({id,name,q:arr});ls.set('pq:quizzes',l)}
+  if(folder){FOLDERS['c_'+id]=folder;await saveFolders()}
+  return id;
+}
 $('qbSave').onclick=async()=>{const n=$('qbName').value.trim();if(!n||!QB.length){qbShow('Enter a quiz name and add at least one question.');return}
   const js=JSON.stringify(QB);if(js.length>220000){qbShow('Too many questions for one quiz. Split it into smaller quizzes (about 300 each).');return}
-  const id=Date.now().toString(36);
-  if(DB){try{await DB.doc('quizzes/'+id).set({name:n,q:js,ts:Date.now()})}catch(e){qbShow('Could not save the quiz. Check that you have Editor access.');return}}
-  else{const l=ls.get('pq:quizzes',[]);l.push({id,name:n,q:QB});ls.set('pq:quizzes',l)}
+  try{await saveQuiz(n,QB,$('qbFolder').value.trim())}catch(e){qbShow('Could not save the quiz. Check that you have Editor access.');return}
   QB=[];$('qbName').value='';await loadCustom();qbShow('Quiz saved. Tick it for students in the table above.');loadAdmin()};
+async function importFiles(files){
+  const typed=$('qbFolder').value.trim();let made=0,qs=0;const bad=[],used=new Set();
+  qbShow('Uploading '+files.length+' file(s)…');
+  for(const f of files){
+    if(!/\.(json|csv|txt|tsv)$/i.test(f.name))continue;
+    try{const txt=String(await f.text()).replace(/^\uFEFF/,'');const a=toQs(txt);
+      if(!a.length){bad.push(f.name);continue}
+      if(JSON.stringify(a).length>220000){bad.push(f.name+' (too big)');continue}
+      const fol=typed||((f.webkitRelativePath||'').split('/').slice(0,-1).pop())||'';
+      await saveQuiz(f.name.replace(/\.[^.]+$/,'').replace(/_+/g,' ').trim(),a,fol);made++;qs+=a.length;if(fol)used.add(fol)}
+    catch(e){bad.push(f.name)}
+  }
+  await loadCustom();loadAdmin();
+  qbShow(made?'✔ '+made+' quiz(es) uploaded ('+qs+' questions)'+(used.size?' into folder: '+[...used].join(', '):'')+'. Tick them for students in the table above.'+(bad.length?' Skipped: '+bad.join(', '):''):'No quiz could be read.'+(bad.length?' Skipped: '+bad.join(', '):''));
+}
+$('qbDirBtn').onclick=()=>$('qbDir').click();
+$('qbDir').onchange=e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importFiles(fs)};
 $('qbExisting').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
   if(!b.dataset.show&&!b.dataset.sure){b.dataset.sure='1';b.textContent='Sure? Click again';return}
   if(b.dataset.cq){const id=b.dataset.cq;if(DB)try{await DB.doc('quizzes/'+id).delete()}catch(er){}else ls.set('pq:quizzes',ls.get('pq:quizzes',[]).filter(x=>x.id!==id));await loadCustom()}
@@ -556,9 +609,12 @@ $('qbExisting').onclick=async e=>{const b=e.target.closest('button');if(!b)retur
   else if(b.dataset.show){HIDDEN=HIDDEN.filter(x=>x!==b.dataset.show);await saveHidden()}
   loadAdmin()};
 function qbList(){
+  const names=[...new Set(MODS.map(folderOf).filter(Boolean))].sort();
+  $('folderList').innerHTML=names.map(n=>'<option value="'+esc(n)+'">').join('');
   $('qbExisting').innerHTML=MODS.map(m=>{const h=HIDDEN.includes(m.id);
     const btn=m.custom?'<button class="btn ghost" data-cq="'+m.cid+'">Delete</button>':h?'<button class="btn ghost" data-show="'+m.id+'">Restore</button>':'<button class="btn ghost" data-hide="'+m.id+'">Remove</button>';
-    return '<div class="row" style="justify-content:space-between;margin-top:8px;'+(h?'opacity:.5':'')+'"><span>'+esc(m.name)+(h?' <span class="tag">removed</span>':'')+'</span>'+btn+'</div>'}).join('')}
+    return '<div class="row" style="justify-content:space-between;margin-top:8px;flex-wrap:wrap;'+(h?'opacity:.5':'')+'"><span>'+esc(m.name)+(h?' <span class="tag">removed</span>':'')+'</span><span style="display:flex;gap:6px;align-items:center"><input type="text" list="folderList" data-fo="'+m.id+'" value="'+esc(folderOf(m))+'" placeholder="📁 Folder" style="width:150px;margin:0"> '+btn+'</span></div>'}).join('')}
+$('qbExisting').onchange=async e=>{const t=e.target;if(!t.dataset||t.dataset.fo===undefined)return;FOLDERS[t.dataset.fo]=t.value.trim();await saveFolders();qbList()};
 
 /* ---------- notes & live classes ---------- */
 let CONTENT={notes:[],classes:[]};
