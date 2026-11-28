@@ -1,4 +1,4 @@
-Vettri Namadhey app  (version 2026.11.25)
+Vettri Namadhey app  (version 2026.11.26)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -61,3 +61,8 @@ NEW IN 2026.11.25 - TESTS IN FOLDERS
 - Admin page > Create / upload a quiz: pick several quiz files at once (each file becomes a quiz named after the file) or press
   "Upload a whole folder" (computer only; the folder name becomes the folder). Optionally type a Folder name first.
 No new Firebase rules are needed.
+
+NEW IN 2026.11.26 - PROFILE PAGE
+Top bar now shows Tests and 👤 Profile. The Profile page shows the student's name, email and role, with the Log out button
+INSIDE the profile card and the Change password card BELOW it. (Admins keep a Log out button in the top bar as well.)
+Also fixed: the top bar no longer shows on the login screen (a "Check for updates" button is on the login card instead).

@@ -1,11 +1,11 @@
-const APP_VERSION="2026.11.25";
+const APP_VERSION="2026.11.26";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ls={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 let U=null,DB=null,M=null,Q=[],E='',ans={},idx=0,done=false,filter='all',shown=40,saveT=null;
 const hash=s=>{let h=5381;for(const c of s)h=((h<<5)+h+c.charCodeAt(0))>>>0;return String(h)};
-const show=v=>['login','home','play','result','admin','notes','live','ansv'].forEach(x=>$(x).classList.toggle('hide',x!==v));
+const show=v=>['login','home','play','result','admin','notes','live','ansv','profile'].forEach(x=>$(x).classList.toggle('hide',x!==v));
 const pk=m=>'pq:p:'+U.id+':'+m;
 
 /* ---------- login ---------- */
@@ -240,7 +240,7 @@ $('lout').onclick=()=>{persist(true);if(U&&U.admin){localStorage.removeItem('pq:
 
 /* ---------- app updates (installed app) ---------- */
 const APPV=typeof APP_VERSION==='undefined'?null:APP_VERSION;
-if(APPV)$('updChk').classList.remove('hide');
+if(APPV){$('updChk').classList.remove('hide');$('updChk2').classList.remove('hide')}
 function updNote(h,go){const u=$('upd');u.classList.remove('hide');u.innerHTML=h+(go?' <button class="btn" id="updGo" style="margin-top:8px">Update now</button>':'');if(go)$('updGo').onclick=doUpdate}
 async function checkUpdate(manual){
   if(!APPV||location.protocol.indexOf('http')!==0){if(manual)updNote('Updates work in the installed app opened from your web link.');return}
@@ -257,13 +257,14 @@ async function doUpdate(){
   location.reload();
 }
 $('updChk').onclick=()=>checkUpdate(true);
+$('updChk2').onclick=()=>checkUpdate(true);
 
 async function enter(){
   if(U.admin&&ADMINS.length&&!ADMINS.includes((U.email||'').toLowerCase())){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This email is not an admin.';return}
   if(!U.admin){const a=await getAcc(U.id);if(a&&a.status==='pending'){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='Your account is waiting for admin approval.';return}if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account no longer exists. Please tap “Create new account” to sign up again.';return}}
   await loadCustom();
   $('who').textContent=U.name+(U.admin?' (admin)':'');
-  $('admBtn').classList.toggle('hide',!U.admin);updPending();
+  $('admBtn').classList.toggle('hide',!U.admin);$('lout').classList.toggle('hide',!U.admin);updPending();
   $('bar2').classList.remove('hide');
   ACC=U.admin?MODS.map(m=>m.id):await getAccess(U.id);
   const last=ls.get('pq:last:'+U.id,null);
@@ -290,6 +291,16 @@ $('cpBtn').onclick=async()=>{const m=$('cpMsg');m.style.color='var(--bad)';const
   a.pw=await PH(U.email,n);await setAcc(U.id,a);if(U.admin){const v=ls.get('pq:priv',null);if(v){if(ADMINS.length)await kset('priv_'+U.id,await wrapPriv(v,n));else await storeKeys(null,v,n)}}$('cpOld').value=$('cpNew').value='';m.style.color='var(--ok)';m.textContent='Password updated ✔'};
 $('mods').onclick=e=>{const b=e.target.closest('button');if(b)openMod(b.dataset.m)};
 $('homeBtn').onclick=()=>{persist();ls.set('pq:last:'+U.id,null);M=null;home()};
+/* ---------- profile page: details, change password, log out ---------- */
+function openProfile(){
+  show('profile');
+  $('prAv').textContent=(U.name||'?').trim().charAt(0).toUpperCase();
+  $('prName').textContent=U.name||'';$('prEmail').textContent=U.email||'';$('prRole').textContent=U.admin?'Admin':'Student';
+  $('cpMsg').textContent='';$('cpOld').value='';$('cpNew').value='';scrollTo(0,0);
+}
+$('profBtn').onclick=()=>{persist();ls.set('pq:last:'+U.id,null);M=null;openProfile()};
+$('prBack').onclick=()=>home();
+$('plout').onclick=()=>$('lout').click();
 
 /* ---------- persistence (survives refresh) ---------- */
 function persist(now){
