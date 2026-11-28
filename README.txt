@@ -1,4 +1,4 @@
-Vettri Namadhey app  (version 2026.11.26)
+Vettri Namadhey app  (version 2026.11.27)
 
 TWO ADMINS
 config.js lists the approved admin emails (only these can log in on the Admin tab):
@@ -66,3 +66,5 @@ NEW IN 2026.11.26 - PROFILE PAGE
 Top bar now shows Tests and 👤 Profile. The Profile page shows the student's name, email and role, with the Log out button
 INSIDE the profile card and the Change password card BELOW it. (Admins keep a Log out button in the top bar as well.)
 Also fixed: the top bar no longer shows on the login screen (a "Check for updates" button is on the login card instead).
+
+NEW IN 2026.11.27: Log out is now ONLY inside the Profile page for everyone (admins too). The top-bar button 'Check for updates' is shortened to '🔄 Updates'.

@@ -1,4 +1,4 @@
-const APP_VERSION="2026.11.26";
+const APP_VERSION="2026.11.27";
 
 const $=id=>document.getElementById(id),L=['A','B','C','D','E'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -264,7 +264,7 @@ async function enter(){
   if(!U.admin){const a=await getAcc(U.id);if(a&&a.status==='pending'){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='Your account is waiting for admin approval.';return}if(!a){ls.set('pq:session',null);U=null;$('bar2').classList.add('hide');show('login');$('lmsg').textContent='This account no longer exists. Please tap “Create new account” to sign up again.';return}}
   await loadCustom();
   $('who').textContent=U.name+(U.admin?' (admin)':'');
-  $('admBtn').classList.toggle('hide',!U.admin);$('lout').classList.toggle('hide',!U.admin);updPending();
+  $('admBtn').classList.toggle('hide',!U.admin);$('lout').classList.add('hide');updPending();
   $('bar2').classList.remove('hide');
   ACC=U.admin?MODS.map(m=>m.id):await getAccess(U.id);
   const last=ls.get('pq:last:'+U.id,null);
